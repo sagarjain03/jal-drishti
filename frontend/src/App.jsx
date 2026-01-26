@@ -30,14 +30,19 @@ const USE_FAKE_STREAM = false;
  */
 function App() {
   const [token, setToken] = useState(null);
+
+  // Only use live stream when not in fake/test mode
+  const liveStreamData = useLiveStream(USE_FAKE_STREAM ? null : token);
+
+  // Destructure with defaults for when hook returns null/disconnected state
   const {
-    frame,
-    fps,
-    connectionStatus,
-    reconnectAttempt,
-    lastValidFrame,
-    manualReconnect
-  } = useLiveStream(token);
+    frame = null,
+    fps = 0,
+    connectionStatus = CONNECTION_STATES.CONNECTED, // When fake, pretend connected
+    reconnectAttempt = 0,
+    lastValidFrame = null,
+    manualReconnect = () => { }
+  } = liveStreamData;
 
   // Use ref for previous state tracking (not useState - avoids re-renders)
   const prevStateRef = useRef(SYSTEM_STATES.SAFE_MODE);

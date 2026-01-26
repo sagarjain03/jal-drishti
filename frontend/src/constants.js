@@ -51,6 +51,6 @@ export const OVERLAY_OPACITY = {
 
 // WebSocket config
 export const WS_CONFIG = {
-  URL: 'ws://127.0.0.1:8000/ws/stream',
+  URL: 'ws://127.0.0.1:9000/ws/stream',
   FRAME_INTERVAL_MS: 66  // ~15 FPS
 };

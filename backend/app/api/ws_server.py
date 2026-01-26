@@ -21,11 +21,11 @@ def set_event_loop(loop):
 async def websocket_endpoint(websocket: WebSocket):
     global active_connection
     
-    # Accept new connection
-    await websocket.accept()
-    
     # Requirement: Accept exactly one active client at a time
+    # IMPORTANT: Check BEFORE accepting to prevent race conditions
     if active_connection is not None:
+        # Accept first to be able to send a message
+        await websocket.accept()
         print("[WS] Rejecting secondary connection.")
         # Send JSON error before closing
         await websocket.send_json({
@@ -37,6 +37,8 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close()
         return
 
+    # Accept and set as active ATOMICALLY
+    await websocket.accept()
     active_connection = websocket
     print("[WS] Client connected.")
     
@@ -51,17 +53,25 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             # Keep the connection open.
-            # We don't expect messages from client, but we must await something to keep loop alive.
-            # If client disconnects, this will raise WebSocketDisconnect
-            data = await websocket.receive_text()
-            # Optional: handle ping/pong or commands
-            pass
+            # Use receive() to handle all message types properly
+            message = await websocket.receive()
+            
+            # Check the message type
+            if message["type"] == "websocket.disconnect":
+                break
+            elif message["type"] == "websocket.receive":
+                # Handle text or bytes data if needed
+                data = message.get("text") or message.get("bytes")
+                # Optional: handle ping/pong or commands
+                pass
             
     except WebSocketDisconnect:
-        print("[WS] Client disconnected.")
-        active_connection = None
+        print("[WS] Client disconnected (exception).")
     except Exception as e:
         print(f"[WS] Error: {e}")
+    finally:
+        # ALWAYS reset active_connection when this handler exits
+        print("[WS] Client disconnected.")
         active_connection = None
 
 
