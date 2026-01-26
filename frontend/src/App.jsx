@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import StatusBar from './components/StatusBar';
 import VideoPanel from './components/VideoPanel';
 import AlertPanel from './components/AlertPanel';
-import ConnectionOverlay from './components/ConnectionOverlay';
+import LoginPage from './components/LoginPage';
 import useLiveStream from './hooks/useLiveStream';
 import useFakeStream from './hooks/useFakeStream';
 import { SYSTEM_STATES, CONNECTION_STATES } from './constants';
@@ -28,18 +28,8 @@ const USE_FAKE_STREAM = false;
  * - Passes all required data to child components
  */
 function App() {
-  // Choose stream hook based on test mode
-  const liveStream = useLiveStream();
-  const fakeStream = useFakeStream();
-
-  const {
-    frame,
-    fps,
-    connectionStatus,
-    reconnectAttempt,
-    lastValidFrame,
-    manualReconnect
-  } = USE_FAKE_STREAM ? fakeStream : liveStream;
+  const [token, setToken] = useState(null);
+  const { frame, fps, isConnected } = useLiveStream(token);
 
   // Use ref for previous state tracking (not useState - avoids re-renders)
   const prevStateRef = useRef(SYSTEM_STATES.SAFE_MODE);
@@ -54,12 +44,9 @@ function App() {
     system: { fps: null, latency_ms: null }
   };
 
-  // Update prev state ref for transition detection
-  useEffect(() => {
-    if (frame?.state) {
-      prevStateRef.current = frame.state;
-    }
-  }, [frame?.state]);
+  if (!token) {
+    return <LoginPage onLogin={setToken} />;
+  }
 
   return (
     <div className="app-container">

@@ -6,19 +6,7 @@ import {
     WS_CONFIG
 } from '../constants';
 
-/**
- * useLiveStream Hook
- * 
- * Manages WebSocket connection to backend with:
- * - Auto-reconnection with exponential backoff
- * - Max retry limit with FAILED state
- * - Last valid frame preservation
- * - FPS tracking
- * 
- * IMPORTANT: Frontend NEVER computes latency. Only displays backend-reported values.
- */
-const useLiveStream = () => {
-    // Core state
+const useLiveStream = (token) => {
     const [frame, setFrame] = useState(null);
     const [fps, setFps] = useState(0);
     const [connectionStatus, setConnectionStatus] = useState(CONNECTION_STATES.DISCONNECTED);
@@ -34,35 +22,12 @@ const useLiveStream = () => {
     const lastFrameIdRef = useRef(-1);
     const connectRef = useRef(null);
 
-    // Calculate reconnection delay with exponential backoff
-    const getReconnectDelay = useCallback((attempt) => {
-        const delay = RECONNECT_CONFIG.BASE_DELAY_MS * Math.pow(2, attempt);
-        return Math.min(delay, RECONNECT_CONFIG.MAX_DELAY_MS);
-    }, []);
+    useEffect(() => {
+        // Connect to WebSocket
+        if (!token) return;
 
-    // Cleanup function
-    const cleanup = useCallback(() => {
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-        }
-        if (streamIntervalRef.current) {
-            clearInterval(streamIntervalRef.current);
-            streamIntervalRef.current = null;
-        }
-        if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-            reconnectTimeoutRef.current = null;
-        }
-    }, []);
-
-    // Connect to WebSocket
-    const connect = useCallback(() => {
-        cleanup();
-        setConnectionStatus(CONNECTION_STATES.CONNECTING);
-
-        try {
-            const ws = new WebSocket(WS_CONFIG.URL);
+        const connect = () => {
+            const ws = new WebSocket(`${BACKEND_URL}?token=${token}`);
             wsRef.current = ws;
 
             ws.onopen = () => {
@@ -180,7 +145,7 @@ const useLiveStream = () => {
                 clearInterval(fpsIntervalRef.current);
             }
         };
-    }, [connect, cleanup]);
+    }, [token]);
 
     return {
         frame,
