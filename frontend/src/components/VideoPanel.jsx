@@ -1,13 +1,28 @@
 import React from 'react';
 import DetectionOverlay from './DetectionOverlay';
+import { SYSTEM_STATES } from '../constants';
 import '../App.css';
 
-const VideoPanel = ({ title, imageSrc, detections, isEnhanced = false }) => {
+/**
+ * VideoPanel Component
+ * 
+ * Displays video feed with optional detection overlay.
+ * - Raw feed: no overlay
+ * - Enhanced feed: with bounding boxes
+ * - Passes system state to overlay for proper coloring
+ */
+const VideoPanel = ({
+    title,
+    imageSrc,
+    detections,
+    systemState = SYSTEM_STATES.SAFE_MODE,
+    isEnhanced = false
+}) => {
     return (
         <div className="video-panel">
             <div className="video-header">
                 <h3 className="video-title">{title}</h3>
-                {isEnhanced && <span className="badge-live">LIVE AI</span>}
+                {isEnhanced && <span className="badge-live">AI ENHANCED</span>}
             </div>
 
             <div className="video-content">
@@ -18,11 +33,12 @@ const VideoPanel = ({ title, imageSrc, detections, isEnhanced = false }) => {
                     className="video-feed"
                 />
 
-                {/* Overlay - Only if Enhanced */}
+                {/* Detection Overlay - Only on Enhanced feed */}
                 {isEnhanced && detections && (
                     <DetectionOverlay
                         detections={detections}
-                        width={640} // Intrinsic resolution assumption
+                        systemState={systemState}
+                        width={640}
                         height={480}
                     />
                 )}

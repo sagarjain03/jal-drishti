@@ -1,47 +1,68 @@
 import { useState, useEffect, useRef } from 'react';
 import { generateNextFrame } from '../data/mockStreamGenerator';
+import { CONNECTION_STATES } from '../constants';
 
+/**
+ * useFakeStream Hook
+ * 
+ * Simulates the live stream for frontend-only testing.
+ * Generates Phase-2 compliant frames with all required fields.
+ */
 const useFakeStream = () => {
     const [frame, setFrame] = useState(null);
     const [fps, setFps] = useState(0);
-    const [isConnected, setIsConnected] = useState(false);
+    const [connectionStatus, setConnectionStatus] = useState(CONNECTION_STATES.DISCONNECTED);
+    const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
-    // Refs for logic that shouldn't trigger re-renders
+    // Refs for FPS calculation
     const frameCountRef = useRef(0);
     const intervalRef = useRef(null);
     const fpsIntervalRef = useRef(null);
+    const lastValidFrameRef = useRef(null);
 
     useEffect(() => {
-        setIsConnected(true);
+        // Simulate connection startup
+        setConnectionStatus(CONNECTION_STATES.CONNECTING);
 
-        // 1. Frame Loop (Approx 15 FPS -> 66ms)
-        intervalRef.current = setInterval(() => {
-            const nextFrame = generateNextFrame();
+        const startupTimeout = setTimeout(() => {
+            setConnectionStatus(CONNECTION_STATES.CONNECTED);
 
-            // Update state with latest frame
-            // In a real high-perf scenario, we might use refs or requestAnimationFrame,
-            // but for this UI skeleton, useState is sufficient and correct for React updates.
-            setFrame(nextFrame);
+            // Frame generation loop (~15 FPS)
+            intervalRef.current = setInterval(() => {
+                const nextFrame = generateNextFrame();
+                setFrame(nextFrame);
+                lastValidFrameRef.current = nextFrame;
+                frameCountRef.current += 1;
+            }, 66);
+        }, 500); // Simulate 500ms connection time
 
-            // Increment counter for FPS calculation
-            frameCountRef.current += 1;
-        }, 66);
-
-        // 2. FPS Calculation Loop (Every 1 second)
+        // FPS calculation loop
         fpsIntervalRef.current = setInterval(() => {
             setFps(frameCountRef.current);
-            frameCountRef.current = 0; // Reset counter
+            frameCountRef.current = 0;
         }, 1000);
 
-        // Cleanup on unmount
         return () => {
-            setIsConnected(false);
+            clearTimeout(startupTimeout);
             if (intervalRef.current) clearInterval(intervalRef.current);
             if (fpsIntervalRef.current) clearInterval(fpsIntervalRef.current);
+            setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
         };
     }, []);
 
-    return { frame, fps, isConnected };
+    // Manual reconnect (not used in fake stream, but API compatible)
+    const manualReconnect = () => {
+        console.log('[FakeStream] Manual reconnect - no-op in fake mode');
+    };
+
+    return {
+        frame,
+        fps,
+        connectionStatus,
+        reconnectAttempt,
+        lastValidFrame: lastValidFrameRef.current,
+        manualReconnect
+    };
 };
 
 export default useFakeStream;

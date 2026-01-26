@@ -1,6 +1,20 @@
 import React, { useRef, useEffect } from 'react';
+import { STATE_COLORS, SYSTEM_STATES } from '../constants';
 
-const DetectionOverlay = ({ detections = [], width = 640, height = 480 }) => {
+/**
+ * DetectionOverlay Component
+ * 
+ * Draws bounding boxes on canvas with:
+ * - Color based on SYSTEM STATE (not individual confidence)
+ * - SAFE_MODE: thin stroke, low opacity, "Unreliable" label
+ * - Standard: 3px stroke, full opacity
+ */
+const DetectionOverlay = ({
+    detections = [],
+    systemState = SYSTEM_STATES.SAFE_MODE,
+    width = 640,
+    height = 480
+}) => {
     const canvasRef = useRef(null);
 
     useEffect(() => {
@@ -11,37 +25,54 @@ const DetectionOverlay = ({ detections = [], width = 640, height = 480 }) => {
         // Clear previous frame
         ctx.clearRect(0, 0, width, height);
 
+        // Determine styling based on system state
+        const isSafeMode = systemState === SYSTEM_STATES.SAFE_MODE;
+        const color = STATE_COLORS[systemState] || STATE_COLORS.SAFE_MODE;
+        const lineWidth = isSafeMode ? 1 : 3;
+        const globalAlpha = isSafeMode ? 0.4 : 1.0;
+
+        ctx.save();
+        ctx.globalAlpha = globalAlpha;
+
         detections.forEach((det) => {
             const { bbox, label, confidence } = det;
-            const [x, y, w, h] = bbox;
 
-            // Determine color based on confidence
-            let color = '#22c55e'; // Green (< 0.4)
-            if (confidence > 0.75) {
-                color = '#ef4444'; // Red
-            } else if (confidence >= 0.4) {
-                color = '#eab308'; // Yellow
+            // Support both [x, y, w, h] and [x1, y1, x2, y2] formats
+            let x, y, w, h;
+            if (bbox.length === 4) {
+                // Assume [x, y, w, h] format based on existing code
+                [x, y, w, h] = bbox;
             }
 
             // Draw bounding box
             ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
+            ctx.lineWidth = lineWidth;
             ctx.strokeRect(x, y, w, h);
 
-            // Draw label background
-            ctx.fillStyle = color;
-            const text = `${label} ${(confidence * 100).toFixed(0)}%`;
-            const textWidth = ctx.measureText(text).width;
+            // Prepare label text
+            let displayLabel = label || 'anomaly';
+            if (isSafeMode) {
+                displayLabel += ' (Unreliable)';
+            }
+            const confidenceText = `${(confidence * 100).toFixed(0)}%`;
+            const text = `${displayLabel} ${confidenceText}`;
 
-            ctx.fillRect(x, y - 25, textWidth + 10, 25);
+            // Draw label background
+            ctx.font = isSafeMode ? '12px sans-serif' : '14px sans-serif';
+            const textWidth = ctx.measureText(text).width;
+            const labelHeight = isSafeMode ? 20 : 25;
+
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y - labelHeight, textWidth + 10, labelHeight);
 
             // Draw text
-            ctx.fillStyle = '#000000';
-            ctx.font = '14px sans-serif';
-            ctx.fillText(text, x + 5, y - 7);
+            ctx.fillStyle = isSafeMode ? '#ffffff' : '#000000';
+            ctx.fillText(text, x + 5, y - (isSafeMode ? 5 : 7));
         });
 
-    }, [detections, width, height]);
+        ctx.restore();
+
+    }, [detections, systemState, width, height]);
 
     return (
         <canvas

@@ -5,6 +5,7 @@ ml-engine/outputs/pipeline/multi_test
 ### Node ###
 ml-engine/venv
 ml-engine/detection/yolo/weights/yolov8n.pt
+frontend/docs_helping
 # Logs
 logs
 *.log

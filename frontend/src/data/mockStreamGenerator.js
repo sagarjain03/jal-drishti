@@ -1,39 +1,70 @@
 /**
  * mockStreamGenerator.js
  * 
- * Simulates an intelligent AI backend.
- * - Maintains state of tracked objects (position, velocity).
- * - Updates positions frame-by-frame.
- * - Randomly adds/removes detections.
- * - Fluctuates confidence levels.
+ * Updated for Phase-2 testing.
+ * Supports all 3 system states: SAFE_MODE, POTENTIAL_ANOMALY, CONFIRMED_THREAT
+ * State cycles automatically for TEST 4 validation.
  */
+
+import { SYSTEM_STATES } from '../constants';
 
 // Simulation constants
 const WIDTH = 640;
 const HEIGHT = 480;
-const MAX_OBJECTS = 5;
+const MAX_OBJECTS = 3;
 
-// State to persist between frames (simulating backend memory)
+// State to persist between frames
 let trackedObjects = [
     {
         id: 1,
-        label: "Suspicious Object",
-        x: 120, // Center x
-        y: 80,  // Center y
-        w: 180,
-        h: 180,
-        vx: 2,  // Velocity x
-        vy: 1.5,// Velocity y
-        confidence: 0.78
+        label: 'anomaly',
+        x: 120,
+        y: 80,
+        w: 150,
+        h: 120,
+        vx: 2,
+        vy: 1.5,
+        confidence: 0.65
     }
 ];
 
 let frameId = 0;
+let currentStateIndex = 0;
+let framesInState = 0;
+const FRAMES_PER_STATE = 150; // ~10 seconds per state at 15 FPS
+
+// State cycle for TEST 4
+const STATE_CYCLE = [
+    SYSTEM_STATES.SAFE_MODE,
+    SYSTEM_STATES.POTENTIAL_ANOMALY,
+    SYSTEM_STATES.CONFIRMED_THREAT,
+    SYSTEM_STATES.SAFE_MODE
+];
+
+// Force a specific state for manual testing (set to null for auto-cycle)
+let forcedState = null;
+
+export const setForcedState = (state) => {
+    forcedState = state;
+};
+
+export const clearForcedState = () => {
+    forcedState = null;
+};
 
 export const generateNextFrame = () => {
     frameId++;
+    framesInState++;
 
-    // 1. Update existing objects
+    // Auto-cycle states for TEST 4 (if not forced)
+    if (!forcedState && framesInState >= FRAMES_PER_STATE) {
+        framesInState = 0;
+        currentStateIndex = (currentStateIndex + 1) % STATE_CYCLE.length;
+    }
+
+    const currentState = forcedState || STATE_CYCLE[currentStateIndex];
+
+    // Update tracked objects
     trackedObjects.forEach(obj => {
         // Move
         obj.x += obj.vx;
@@ -43,50 +74,82 @@ export const generateNextFrame = () => {
         if (obj.x <= 0 || obj.x + obj.w >= WIDTH) obj.vx *= -1;
         if (obj.y <= 0 || obj.y + obj.h >= HEIGHT) obj.vy *= -1;
 
-        // Fluctuate confidence slightly
-        obj.confidence += (Math.random() - 0.5) * 0.05;
-        obj.confidence = Math.max(0.3, Math.min(0.99, obj.confidence));
+        // Adjust confidence based on state
+        if (currentState === SYSTEM_STATES.CONFIRMED_THREAT) {
+            obj.confidence = 0.85 + Math.random() * 0.1; // 85-95%
+        } else if (currentState === SYSTEM_STATES.POTENTIAL_ANOMALY) {
+            obj.confidence = 0.55 + Math.random() * 0.15; // 55-70%
+        } else {
+            obj.confidence = 0.25 + Math.random() * 0.1; // 25-35% (SAFE_MODE)
+        }
     });
 
-    // 2. Randomly add new object
-    if (trackedObjects.length < MAX_OBJECTS && Math.random() > 0.98) {
+    // Add new object occasionally
+    if (trackedObjects.length < MAX_OBJECTS && Math.random() > 0.995) {
         trackedObjects.push({
             id: Date.now(),
-            label: Math.random() > 0.5 ? "Person" : "Bag",
+            label: 'anomaly',
             x: Math.random() * (WIDTH - 100),
             y: Math.random() * (HEIGHT - 100),
             w: 80 + Math.random() * 50,
-            h: 100 + Math.random() * 80,
-            vx: (Math.random() - 0.5) * 4,
-            vy: (Math.random() - 0.5) * 4,
+            h: 80 + Math.random() * 50,
+            vx: (Math.random() - 0.5) * 3,
+            vy: (Math.random() - 0.5) * 3,
             confidence: 0.5
         });
     }
 
-    // 3. Randomly remove object
-    if (trackedObjects.length > 0 && Math.random() > 0.99) {
+    // Remove object occasionally
+    if (trackedObjects.length > 1 && Math.random() > 0.998) {
         trackedObjects.shift();
     }
 
-    // 4. Construct response
+    // Calculate max confidence
+    const maxConfidence = trackedObjects.length > 0
+        ? Math.max(...trackedObjects.map(obj => obj.confidence))
+        : 0;
+
+    // Construct detections
     const detections = trackedObjects.map(obj => ({
         label: obj.label,
         confidence: parseFloat(obj.confidence.toFixed(2)),
-        // bbox expected format: [x, y, w, h]
         bbox: [Math.floor(obj.x), Math.floor(obj.y), Math.floor(obj.w), Math.floor(obj.h)]
     }));
 
-    // Simulate global visibility
-    const visibility = 130 + Math.sin(frameId / 10) * 10;
+    // Simulate system metrics
+    const simulatedLatency = 50 + Math.floor(Math.random() * 30);
+    const simulatedMlFps = 14 + Math.random() * 2;
 
     return {
-        status: "success",
+        status: 'success',
         frame_id: frameId,
-        // Using a placeholder that changes slightly to force browser img reload if needed, 
-        // though for this task we use static src mostly. 
-        // Ideally, image_data would be a base64 string in a real app or a blob URL.
-        image_data: `https://placehold.co/640x480/222/FFF?text=Enhanced+Frame+${frameId}`,
+        timestamp: new Date().toISOString(),
+        state: currentState,
+        max_confidence: parseFloat(maxConfidence.toFixed(2)),
+        image_data: `https://placehold.co/640x480/1a1a2e/FFF?text=Frame+${frameId}`,
         detections: detections,
-        visibility_score: parseFloat(visibility.toFixed(1))
+        visibility_score: currentState === SYSTEM_STATES.SAFE_MODE ? 0.3 : 0.8,
+        system: {
+            fps: parseFloat(simulatedMlFps.toFixed(1)),
+            latency_ms: simulatedLatency
+        }
     };
+};
+
+// Reset function for testing
+export const resetMockStream = () => {
+    frameId = 0;
+    currentStateIndex = 0;
+    framesInState = 0;
+    trackedObjects = [{
+        id: 1,
+        label: 'anomaly',
+        x: 120,
+        y: 80,
+        w: 150,
+        h: 120,
+        vx: 2,
+        vy: 1.5,
+        confidence: 0.65
+    }];
 };

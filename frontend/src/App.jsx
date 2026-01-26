@@ -1,20 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useEffect } from 'react';
 import StatusBar from './components/StatusBar';
 import VideoPanel from './components/VideoPanel';
 import AlertPanel from './components/AlertPanel';
 import LoginPage from './components/LoginPage';
 import useLiveStream from './hooks/useLiveStream';
+import useFakeStream from './hooks/useFakeStream';
+import { SYSTEM_STATES, CONNECTION_STATES } from './constants';
 import './App.css';
 
+/**
+ * TEST MODE TOGGLE
+ * 
+ * Set to true to use fake stream (frontend-only testing)
+ * Set to false to use live stream (requires backend)
+ * 
+ * For TEST 1-4: Set USE_FAKE_STREAM = true
+ * For TEST 5:   Set USE_FAKE_STREAM = false
+ */
+const USE_FAKE_STREAM = false;
+
+/**
+ * App Component
+ * 
+ * Main dashboard for Jal-Drishti Phase-2.
+ * - Uses useRef for state tracking (avoids render storms)
+ * - Displays ConnectionOverlay when disconnected
+ * - Passes all required data to child components
+ */
 function App() {
   const [token, setToken] = useState(null);
   const { frame, fps, isConnected } = useLiveStream(token);
 
-  // If waiting for first frame, show loading or initial state
-  const currentFrame = frame || {
+  // Use ref for previous state tracking (not useState - avoids re-renders)
+  const prevStateRef = useRef(SYSTEM_STATES.SAFE_MODE);
+
+  // Determine which frame to display (current or last valid on disconnect)
+  const displayFrame = frame || lastValidFrame || {
+    state: SYSTEM_STATES.SAFE_MODE,
+    max_confidence: 0,
     detections: [],
     visibility_score: 0,
-    image_data: null
+    image_data: null,
+    system: { fps: null, latency_ms: null }
   };
 
   if (!token) {
@@ -23,10 +50,20 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Test Mode Indicator */}
+      {USE_FAKE_STREAM && (
+        <div className="test-mode-banner">
+          🧪 TEST MODE: Using Fake Stream (state cycles every ~10s)
+        </div>
+      )}
+
       <StatusBar
-        fps={fps}
-        status={isConnected ? "Connected" : "Disconnected"}
-        visibilityScore={currentFrame.visibility_score}
+        systemState={displayFrame.state}
+        maxConfidence={displayFrame.max_confidence}
+        latencyMs={displayFrame.system?.latency_ms}
+        renderFps={fps}
+        mlFps={displayFrame.system?.fps}
+        connectionStatus={connectionStatus}
       />
 
       <main className="main-content">
@@ -37,13 +74,25 @@ function App() {
         />
         <VideoPanel
           title="Enhanced Feed"
-          imageSrc={currentFrame.image_data}
-          detections={currentFrame.detections}
+          imageSrc={displayFrame.image_data}
+          detections={displayFrame.detections}
+          systemState={displayFrame.state}
           isEnhanced={true}
+        />
+
+        {/* Connection Overlay - non-blocking, canvas stays mounted */}
+        <ConnectionOverlay
+          connectionStatus={connectionStatus}
+          reconnectAttempt={reconnectAttempt}
+          onRetry={manualReconnect}
         />
       </main>
 
-      <AlertPanel detections={currentFrame.detections} />
+      <AlertPanel
+        currentState={displayFrame.state}
+        detections={displayFrame.detections}
+        maxConfidence={displayFrame.max_confidence}
+      />
     </div>
   );
 }
