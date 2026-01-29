@@ -31,42 +31,43 @@ async def startup_event():
     # Capture the main event loop for the WS server to use
     loop = asyncio.get_running_loop()
     ws_server.set_event_loop(loop)
-    
-    # Initialize Core Pipeline
-    # Using a dummy video for now as per previous testing context. 
-    # Ideally this video path should come from config or request.
-    video_path = "backend/dummy.mp4" # Assumption based on verify_video.py location, but we are running from root likely
-    # Let's use a safe absolute path or check existence. 
-    # For this Milestone, let's look for 'dummy.mp4' in current dir or create one?
-    # Actually, verify_video.py created it on Desktop execution context.
-    # Let's assume a fixed path for the demo.
     import os
-    if not os.path.exists("dummy.mp4"):
-        print("[Startup] Warning: dummy.mp4 not found. Please run verify_video.py first or provide video.")
-        # Create one if missing for stability? No, simpler to warn.
+    # Initialize Core Pipeline
+    from app.services.ml_service import ml_service
     
-    # Actually, we need to pass a valid video reader.
-    # Reusing the one created by verification if available.
-    if os.path.exists("dummy.mp4"):
-        reader = VideoReader("dummy.mp4")
-    else:
-        # Fallback to verify logic? Or just fail gracefully?
-        print("[Startup] No video source found.")
-        return
+    video_path = "backend/dummy.mp4"
+    if not os.path.exists(video_path):
+        # Check relative to root as well
+        if os.path.exists("dummy.mp4"):
+            video_path = "dummy.mp4"
+        else:
+            print(f"[Startup] Warning: {video_path} not found.")
+            return
+    
+    reader = VideoReader(video_path)
 
-    ml_module = DummyML()
-    
     # Callback to push to WebSocket
-    def on_result(payload):
-        ws_server.broadcast(payload)
+    def on_result(envelope):
+        """
+        Flatten the payload for the frontend.
+        The frontend expects 'state', 'image_data', etc. at the top level.
+        """
+        if envelope.get("type") == "data" and "payload" in envelope:
+            flat_payload = {
+                "type": "data",
+                **envelope["payload"]
+            }
+            ws_server.broadcast(flat_payload)
+        else:
+            ws_server.broadcast(envelope)
 
     # Scheduler
-    scheduler = FrameScheduler(reader, target_fps=15, ml_module=ml_module, result_callback=on_result)
+    scheduler = FrameScheduler(reader, target_fps=5, ml_module=ml_service, result_callback=on_result)
     
     # Run in background thread
     t = threading.Thread(target=scheduler.run, daemon=True)
     t.start()
-    print("[Startup] Scheduler thread started.")
+    print("[Startup] Scheduler thread started with real ML Engine.")
 
 
 @app.get("/")

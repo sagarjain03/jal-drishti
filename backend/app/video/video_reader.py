@@ -16,7 +16,7 @@ class VideoReader:
         Generator function to read video frame by frame.
         
         Yields:
-            numpy.ndarray: The RGB frame with shape (H, W, 3) and dtype uint8.
+            numpy.ndarray: The BGR frame with shape (H, W, 3) and dtype uint8.
         """
         cap = cv2.VideoCapture(self.video_path)
         
@@ -33,21 +33,16 @@ class VideoReader:
                     print("[VideoReader] Info: End of video reached or cannot read frame.")
                     break
                 
-                # Convert BGR to RGB
-                # STRICT RULE: No resizing, no normalization, no dropped frames.
-                # Just raw pixel format conversion.
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
                 # Validation Logic
                 # Ensure dtype is uint8
-                if rgb_frame.dtype != 'uint8':
-                     rgb_frame = rgb_frame.astype('uint8')
+                if frame.dtype != 'uint8':
+                     frame = frame.astype('uint8')
 
                 # Log basic frame info
                 # "Outputs basic validation logs for each frame"
-                print(f"[VideoReader] Frame {frame_index}: Shape={rgb_frame.shape}, Dtype={rgb_frame.dtype}")
+                print(f"[VideoReader] Frame {frame_index}: Shape={frame.shape}, Dtype={frame.dtype}")
                 
-                yield rgb_frame
+                yield frame
                 
                 frame_index += 1
                 

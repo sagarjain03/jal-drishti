@@ -1,80 +1,93 @@
-import random
 import base64
+import numpy as np
+import cv2
+import sys
+import os
+
+# Ensure backend can import ml-engine core
+# Assumes structure:
+# jal-drishti/
+#   backend/app/services/ml_service.py
+#   ml-engine/core/...
+# We need to add jal-drishti/ml-engine to path
+current_dir = os.path.dirname(os.path.abspath(__file__)) # .../backend/app/services
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir))) # .../jal-drishti
+ml_engine_path = os.path.join(root_dir, "ml-engine")
+if ml_engine_path not in sys.path:
+    sys.path.append(ml_engine_path)
+
+from core.pipeline import JalDrishtiEngine
 
 class MLService:
     def __init__(self):
-        self.frame_count = 0
-        # Placeholder base64 image (1x1 pixel black png) to satisfy contract if needed, 
-        # or we can use a larger placeholder.
-        # This is a small 1x1 black pixel.
-        self.placeholder_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        print("[ML Service] Initializing...")
+        try:
+            self.engine = JalDrishtiEngine()
+            print("[ML Service] Engine Initialized Successfully")
+        except Exception as e:
+            print(f"[ML Service] CRITICAL ERROR: Engine failed to start: {e}")
+            self.engine = None
         
-        # State for moving objects [x, y, dx, dy]
-        self.objects = [
-            {"x": 100, "y": 100, "vx": 5, "vy": 3, "label": "Suspicious Object"},
-            {"x": 300, "y": 200, "vx": -4, "vy": 2, "label": "mine"}
-        ]
-        self.width = 640
-        self.height = 480
+        self.frame_count = 0
+
+    def run_inference(self, frame: np.ndarray) -> dict:
+        """
+        Processes a raw BGR frame from the scheduler.
+        """
+        if self.engine is None:
+            raise RuntimeError("Engine not initialized")
+            
+        result_json, enhanced_frame = self.engine.infer(frame)
+        
+        # Encode enhanced frame back to base64 for frontend display
+        _, buffer = cv2.imencode('.jpg', enhanced_frame)
+        b64_image = base64.b64encode(buffer).decode('utf-8')
+        
+        # Flattened response for frontend
+        response = {
+            "image_data": b64_image,
+            "visibility_score": 0.8, # Derived or placeholder
+            **result_json # timestamp, state, max_confidence, detections
+        }
+        return response
 
     def process_frame(self, binary_frame: bytes) -> dict:
         """
-        Simulates processing a video frame.
-        Ignores actual binary data.
-        Returns a dictionary matching the response schema.
+        Real ML Processing for individual frames (e.g. from WebSocket or HTTP).
         """
         self.frame_count += 1
         
-        # Update object positions
-        active_detections = []
-        
-        # Randomly add/remove objects occasionally
-        if random.random() > 0.98 and len(self.objects) < 5:
-            self.objects.append({
-                "x": random.randint(0, self.width), 
-                "y": random.randint(0, self.height), 
-                "vx": random.randint(-5, 5), 
-                "vy": random.randint(-5, 5),
-                "label": random.choice(["Person", "Vehicle", "mine"])
-            })
-        
-        if random.random() > 0.99 and len(self.objects) > 0:
-            self.objects.pop(0)
+        try:
+            # Decode image
+            nparr = np.frombuffer(binary_frame, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        for obj in self.objects:
-            # Move
-            obj["x"] += obj["vx"]
-            obj["y"] += obj["vy"]
+            if frame is None:
+                return self._error_response("Image decode failed")
             
-            # Bounce
-            if obj["x"] < 0 or obj["x"] > self.width - 100: obj["vx"] *= -1
-            if obj["y"] < 0 or obj["y"] > self.height - 100: obj["vy"] *= -1
+            # Run Inference
+            result = self.run_inference(frame)
             
-            # Create detection
-            confidence = random.uniform(0.4, 0.95)
-            # Box size roughly 100x100
-            bbox = [
-                int(obj["x"]), 
-                int(obj["y"]), 
-                100, 
-                100
-            ]
-            
-            active_detections.append({
-                "label": obj["label"],
-                "confidence": round(confidence, 2),
-                "bbox": bbox
-            })
+            # Combine with status and frame_id
+            return {
+                "status": "success",
+                "frame_id": self.frame_count,
+                **result
+            }
 
-        # Simulate visibility
-        visibility = 100.0 + random.uniform(-10, 10)
+        except Exception as e:
+            print(f"[ML Service] Processing Error: {e}")
+            return self._error_response(str(e))
 
+    def _error_response(self, msg):
         return {
-            "status": "success",
+            "status": "error",
+            "message": msg,
+            "state": "SAFE_MODE",
             "frame_id": self.frame_count,
-            "image_data": self.placeholder_b64, 
-            "detections": active_detections,
-            "visibility_score": round(visibility, 1)
+            "detections": [],
+            "max_confidence": 0.0,
+            "image_data": None
         }
 
 ml_service = MLService()
