@@ -6,7 +6,7 @@ WEIGHTS_DIR = os.path.join(os.path.dirname(BASE_DIR), "weights")
 
 # Model Paths
 FUNIE_GAN_WEIGHTS = os.path.join(WEIGHTS_DIR, "funie_generator.pth")
-YOLO_WEIGHTS = os.path.join(WEIGHTS_DIR, "yolov8n.pt")
+YOLO_WEIGHTS = os.path.join(WEIGHTS_DIR, "best.pt")
 
 # Thresholds
 CONFIDENCE_THRESHOLD = 0.40

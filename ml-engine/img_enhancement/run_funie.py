@@ -59,6 +59,7 @@ for idx, image_path in enumerate(image_files, 1):
         out = ((out + 1) * 127.5).clip(0, 255).astype(np.uint8)
         
         # Save output
+        out = cv2.resize(out, (640, 640), interpolation=cv2.INTER_CUBIC) # Resize to YOLO input size
         out = cv2.cvtColor(out, cv2.COLOR_RGB2BGR)
         output_path = Path(OUTPUT_DIR) / image_path.name
         cv2.imwrite(str(output_path), out)

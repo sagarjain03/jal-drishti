@@ -94,11 +94,8 @@ class RawVideoSource:
                 timestamp = time.time()
 
                 # Convert BGR (OpenCV default) to RGB for downstream consumers
-                try:
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                except Exception:
-                    # If conversion fails for any reason, fall back to original frame
-                    rgb_frame = frame
+                # Keep as BGR for consistency with OpenCV / ML Engine
+                rgb_frame = frame 
 
                 # Log basic frame info
                 # Outputs basic validation logs for each frame

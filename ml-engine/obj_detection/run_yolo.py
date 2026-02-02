@@ -7,7 +7,10 @@ from datetime import datetime
 # Configuration
 INPUT_DIR = "../data/enhancement/paired"
 OUTPUT_DIR = "yolo/outputs"
-MODEL_NAME = "yolo/weights/yolo8v"  # Auto-download model
+# Correct path relative to this script location
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent.parent
+MODEL_NAME = PROJECT_ROOT / "ml-engine/weights/best.pt"
 CONF_THRESHOLD = 0.4
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -36,11 +36,8 @@ class VideoStreamManager:
             return
 
         try:
-            # 1. Encode Frame (RGB -> BGR for OpenCV encoding -> JPEG)
-            # Input frame is RGB (from RawVideoSource), but imencode expects BGR for correct colors?
-            # actually cv2.imencode expects BGR.
-            # So we must flip it back.
-            bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # 1. Encode Frame (Input is BGR from VideoReader, so no conversion needed)
+            bgr_frame = frame
             
             # Encode to JPEG
             success, buffer = cv2.imencode(".jpg", bgr_frame)
