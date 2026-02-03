@@ -1,17 +1,23 @@
 import React from 'react';
-import { STATE_COLORS, STATE_LABELS, CONNECTION_STATES } from '../constants';
+import { STATE_COLORS, STATE_LABELS, CONNECTION_STATES, INPUT_SOURCES } from '../constants';
 import '../App.css';
 
 /**
- * StatusBar Component
+ * StatusBar Component (Enhanced)
  * 
  * Displays:
- * - System state badge (color-coded)
+ * - System state badge (color-coded with defence theme)
  * - Max confidence (from backend)
  * - Latency (backend-reported only, show -- if missing)
  * - Render FPS (frontend measured)
  * - ML FPS (backend-reported, if available)
- * - Connection status
+ * - Input source indicator
+ * - Connection status with glow effects
+ * 
+ * Color Rules:
+ * - Green → Normal/Connected
+ * - Yellow → Degraded/Potential Anomaly
+ * - Red → SAFE MODE/Threat
  */
 const StatusBar = ({
     systemState = 'SAFE_MODE',
@@ -19,7 +25,8 @@ const StatusBar = ({
     latencyMs = null,
     renderFps = 0,
     mlFps = null,
-    connectionStatus = CONNECTION_STATES.DISCONNECTED
+    connectionStatus = CONNECTION_STATES.DISCONNECTED,
+    inputSource = INPUT_SOURCES.DUMMY_VIDEO
 }) => {
     const getConnectionClass = () => {
         switch (connectionStatus) {
@@ -37,13 +44,13 @@ const StatusBar = ({
     const getConnectionLabel = () => {
         switch (connectionStatus) {
             case CONNECTION_STATES.CONNECTED:
-                return 'CONNECTED';
+                return 'LIVE';
             case CONNECTION_STATES.CONNECTING:
                 return 'CONNECTING';
             case CONNECTION_STATES.FAILED:
                 return 'FAILED';
             default:
-                return 'DISCONNECTED';
+                return 'OFFLINE';
         }
     };
 
@@ -58,11 +65,50 @@ const StatusBar = ({
         }
     };
 
+    /**
+     * Get FPS value color class based on performance
+     */
+    const getFpsColorClass = (fps) => {
+        if (fps >= 12) return 'value-green';
+        if (fps >= 8) return 'value-yellow';
+        return 'value-red';
+    };
+
+    /**
+     * Get latency color class based on responsiveness
+     */
+    const getLatencyColorClass = (latency) => {
+        if (latency === null) return 'value-white';
+        if (latency <= 100) return 'value-green';
+        if (latency <= 300) return 'value-yellow';
+        return 'value-red';
+    };
+
+    /**
+     * Get input source icon
+     */
+    const getInputSourceIcon = () => {
+        switch (inputSource) {
+            case INPUT_SOURCES.LIVE_CAMERA:
+                return '📹';
+            case INPUT_SOURCES.PHONE_CAMERA:
+                return '📱';
+            case INPUT_SOURCES.DUMMY_VIDEO:
+            default:
+                return '🎬';
+        }
+    };
+
     return (
         <div className="status-bar">
             <div className="status-brand">
+                <img
+                    src="/logo.jpeg"
+                    alt="Jal-Drishti Logo"
+                    className="brand-logo"
+                />
                 <h1 className="brand-title">JAL-DRISHTI</h1>
-                <span className="brand-version">v2.0.0-Phase2</span>
+                <span className="brand-version">PHASE-2</span>
             </div>
 
             <div className="status-metrics">
@@ -82,7 +128,7 @@ const StatusBar = ({
                 {/* Latency - backend reported only */}
                 <div className="metric-group right-align">
                     <span className="metric-label">LATENCY</span>
-                    <span className="metric-value value-yellow">
+                    <span className={`metric-value ${getLatencyColorClass(latencyMs)}`}>
                         {latencyMs !== null ? `${latencyMs}ms` : '-- ms'}
                     </span>
                 </div>
@@ -90,7 +136,9 @@ const StatusBar = ({
                 {/* Render FPS (frontend) */}
                 <div className="metric-group right-align">
                     <span className="metric-label">RENDER FPS</span>
-                    <span className="metric-value value-green">{renderFps}</span>
+                    <span className={`metric-value ${getFpsColorClass(renderFps)}`}>
+                        {renderFps}
+                    </span>
                 </div>
 
                 {/* ML FPS (backend, if available) */}
@@ -100,6 +148,15 @@ const StatusBar = ({
                         <span className="metric-value value-cyan">{mlFps.toFixed(1)}</span>
                     </div>
                 )}
+
+                {/* Input Source Indicator */}
+                <div className="input-source">
+                    <span className="input-source-icon">{getInputSourceIcon()}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span className="input-source-label">Source</span>
+                        <span className="input-source-value">{inputSource}</span>
+                    </div>
+                </div>
 
                 {/* Connection Status */}
                 <div className="metric-group">
