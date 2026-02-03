@@ -11,14 +11,20 @@ import '../App.css';
  * - POTENTIAL → CONFIRMED: Escalated alert
  * - CONFIRMED → SAFE: "Threat cleared"
  * - Any → SAFE_MODE: "Low confidence / poor visibility"
+ * 
+ * Includes operator action buttons for decision support.
  */
 const AlertPanel = ({
     currentState = SYSTEM_STATES.SAFE_MODE,
     detections = [],
-    maxConfidence = 0
+    maxConfidence = 0,
+    addEvent = null  // Function to add events to EventTimeline
 }) => {
     const prevStateRef = useRef(currentState);
     const [alerts, setAlerts] = useState([]);
+
+    // Track which alert state has been handled by operator
+    const [handledAlertState, setHandledAlertState] = useState(null);
 
     // Handle state transitions
     useEffect(() => {
@@ -70,6 +76,9 @@ const AlertPanel = ({
                 setAlerts((prev) => [newAlert, ...prev].slice(0, 10)); // Keep last 10 alerts
             }
 
+            // Reset handled state when state changes
+            setHandledAlertState(null);
+
             prevStateRef.current = currentState;
         }
     }, [currentState, maxConfidence]);
@@ -94,6 +103,33 @@ const AlertPanel = ({
         }
     };
 
+    /**
+     * Handle operator confirming threat
+     */
+    const handleConfirmThreat = () => {
+        if (addEvent) {
+            addEvent('state_change', 'Operator confirmed threat', 'danger');
+        }
+        setHandledAlertState('confirmed');
+    };
+
+    /**
+     * Handle operator dismissing false alarm
+     */
+    const handleDismissFalseAlarm = () => {
+        if (addEvent) {
+            addEvent('state_change', 'Operator dismissed false alarm', 'success');
+        }
+        setHandledAlertState('dismissed');
+    };
+
+    // Determine if alert is currently active (requires operator decision)
+    const isAlertActive = currentState === SYSTEM_STATES.POTENTIAL_ANOMALY ||
+        currentState === SYSTEM_STATES.CONFIRMED_THREAT;
+
+    // Show action buttons only if active and not yet handled
+    const showActionButtons = isAlertActive && handledAlertState === null;
+
     return (
         <div className="alert-panel">
             <div className="alert-header">
@@ -111,6 +147,34 @@ const AlertPanel = ({
                 <div className={`state-banner state-banner-${currentState.toLowerCase()}`}>
                     {getStateMessage()}
                 </div>
+
+                {/* Operator Action Buttons */}
+                {showActionButtons && (
+                    <div className="alert-actions">
+                        <button
+                            className="alert-action-btn alert-action-confirm"
+                            onClick={handleConfirmThreat}
+                        >
+                            Confirm Threat
+                        </button>
+                        <button
+                            className="alert-action-btn alert-action-dismiss"
+                            onClick={handleDismissFalseAlarm}
+                        >
+                            Dismiss False Alarm
+                        </button>
+                    </div>
+                )}
+
+                {/* Handled Status */}
+                {isAlertActive && handledAlertState && (
+                    <div className="alert-handled">
+                        {handledAlertState === 'confirmed'
+                            ? '✓ Threat confirmed by operator'
+                            : '✓ Dismissed as false alarm'
+                        }
+                    </div>
+                )}
 
                 {/* Alert History */}
                 {alerts.length === 0 ? (

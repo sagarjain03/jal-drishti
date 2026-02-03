@@ -10,6 +10,8 @@ import EventTimeline from './components/EventTimeline';
 import DetectionOverlay from './components/DetectionOverlay';
 import MaximizedPanel from './components/MaximizedPanel';
 import MetricsPanel from './components/MetricsPanel';
+import SnapshotModal from './components/SnapshotModal';
+import LastAlertSnapshot from './components/LastAlertSnapshot';
 import useLiveStream from './hooks/useLiveStream';
 import useFakeStream from './hooks/useFakeStream';
 import { SYSTEM_STATES, CONNECTION_STATES, INPUT_SOURCES, EVENT_TYPES } from './constants';
@@ -27,16 +29,30 @@ import './App.css';
 const USE_FAKE_STREAM = false;
 
 /**
- * App Component (Enhanced)
+ * Format milliseconds to HH:MM:SS
+ */
+const formatUptime = (ms) => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
+/**
+ * App Component (Enhanced - Phase 3)
  * 
- * Main dashboard for Jal-Drishti Phase-2.
+ * Main dashboard for Jal-Drishti.
  * Features:
  * - Dark defence-theme UI
  * - Safe Mode visual overlay
  * - Event timeline panel
  * - Enhanced status bar with color coding
  * - Detection visual polish
- * - Click-to-maximize video panels
+ * - Click-to-maximize video panels with expand icons
+ * - Snapshot capture functionality
+ * - System uptime counter
+ * - Last alert snapshot panel
  * 
  * IMPORTANT: Backend is unchanged. All enhancements are frontend-only.
  */
@@ -57,6 +73,21 @@ function App() {
   const [fpsHistory, setFpsHistory] = useState([]);
   const [latencyHistory, setLatencyHistory] = useState([]);
   const [safeModeStartTime, setSafeModeStartTime] = useState(null);
+
+  // Phase-3: System uptime
+  const [dashboardStartTime] = useState(Date.now());
+  const [uptime, setUptime] = useState('00:00:00');
+
+  // Phase-3: Snapshot modal state
+  const [snapshotModal, setSnapshotModal] = useState({
+    isOpen: false,
+    imageData: null,
+    timestamp: '',
+    alertType: ''
+  });
+
+  // Phase-3: Last alert snapshot
+  const [lastAlertSnapshot, setLastAlertSnapshot] = useState(null);
 
   // Only use live stream when not in fake/test mode
   const liveStreamData = useLiveStream(USE_FAKE_STREAM ? null : token);
@@ -88,6 +119,14 @@ function App() {
     system: { fps: null, latency_ms: null }
   };
 
+  // Phase-3: Uptime timer effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setUptime(formatUptime(Date.now() - dashboardStartTime));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [dashboardStartTime]);
+
   // Track state changes and add to event timeline
   useEffect(() => {
     const currentState = displayFrame.state;
@@ -102,9 +141,21 @@ function App() {
         currentState === SYSTEM_STATES.POTENTIAL_ANOMALY ? 'warning' : 'success';
 
       addEvent(EVENT_TYPES.STATE_CHANGE, stateLabels[currentState] || 'State Changed', severity);
+
+      // Phase-3: Auto-capture snapshot on alert
+      if (currentState === SYSTEM_STATES.CONFIRMED_THREAT || currentState === SYSTEM_STATES.POTENTIAL_ANOMALY) {
+        if (displayFrame.image_data) {
+          setLastAlertSnapshot({
+            imageData: displayFrame.image_data,
+            timestamp: new Date().toLocaleTimeString(),
+            alertType: currentState
+          });
+        }
+      }
+
       prevStateRef.current = currentState;
     }
-  }, [displayFrame.state, addEvent]);
+  }, [displayFrame.state, displayFrame.image_data, addEvent]);
 
   // Add detection events when new detections appear
   useEffect(() => {
@@ -154,6 +205,28 @@ function App() {
     }
   }, [fps, displayFrame.system?.latency_ms]);
 
+  // Phase-3: Handle snapshot capture
+  const handleCaptureSnapshot = (e) => {
+    e.stopPropagation(); // Prevent panel click
+    if (displayFrame.image_data) {
+      setSnapshotModal({
+        isOpen: true,
+        imageData: displayFrame.image_data,
+        timestamp: new Date().toLocaleString(),
+        alertType: displayFrame.state
+      });
+    }
+  };
+
+  const closeSnapshotModal = () => {
+    setSnapshotModal({
+      isOpen: false,
+      imageData: null,
+      timestamp: '',
+      alertType: ''
+    });
+  };
+
   if (!token) {
     return <LoginPage onLogin={setToken} />;
   }
@@ -167,7 +240,7 @@ function App() {
         </div>
       )}
 
-      {/* Enhanced Status Bar with Input Source */}
+      {/* Enhanced Status Bar with Input Source and Uptime */}
       <StatusBar
         systemState={displayFrame.state}
         maxConfidence={displayFrame.max_confidence}
@@ -176,6 +249,7 @@ function App() {
         mlFps={displayFrame.system?.fps}
         connectionStatus={connectionStatus}
         inputSource={inputSource}
+        uptime={uptime}
       />
 
       <main className="main-content">
@@ -187,7 +261,13 @@ function App() {
             latencyHistory={latencyHistory}
             inSafeMode={systemStatus.inSafeMode}
             safeModeStartTime={safeModeStartTime}
+            currentFps={fps}
+            latency={displayFrame.system?.latency_ms}
+            connectionStatus={connectionStatus}
+            systemState={displayFrame.state}
           />
+          {/* Phase-3: Last Alert Snapshot Panel */}
+          <LastAlertSnapshot snapshot={lastAlertSnapshot} />
         </div>
 
         {/* Real-time RAW Feed - Click to maximize */}
@@ -197,7 +277,14 @@ function App() {
         >
           <div className="video-header">
             <h3 className="video-title">Raw Feed (Sensor)</h3>
-            <span className="badge-live" style={{ background: '#333' }}>RAW</span>
+            <div className="video-header-controls">
+              <span className="badge-live" style={{ background: '#333' }}>RAW</span>
+              <button
+                className="expand-btn"
+                onClick={(e) => { e.stopPropagation(); setMaximizedPanel('raw'); }}
+                title="Expand"
+              >⛶</button>
+            </div>
           </div>
           <div className="video-content">
             <RawFeedPanel />
@@ -219,11 +306,26 @@ function App() {
         >
           <div className="video-header">
             <h3 className="video-title">Enhanced Feed</h3>
-            <span className="badge-live">AI ENHANCED</span>
+            <div className="video-header-controls">
+              <span className="badge-live">AI ENHANCED</span>
+              {/* Phase-3: Snapshot Capture Button */}
+              <button
+                className="capture-btn"
+                onClick={handleCaptureSnapshot}
+                title="Capture Snapshot"
+              >
+                📸 Capture
+              </button>
+              <button
+                className="expand-btn"
+                onClick={(e) => { e.stopPropagation(); setMaximizedPanel('enhanced'); }}
+                title="Expand"
+              >⛶</button>
+            </div>
           </div>
           <div className="video-content">
             <img
-              src={displayFrame.image_data || "https://placehold.co/640x480/0a1628/00ff88?text=Awaiting+Signal"}
+              src={displayFrame.image_data || "https://placehold.co/640x480/0A0A0A/737373?text=Awaiting+Signal"}
               alt="Enhanced Feed"
               className="video-feed"
             />
@@ -261,6 +363,7 @@ function App() {
         currentState={displayFrame.state}
         detections={displayFrame.detections}
         maxConfidence={displayFrame.max_confidence}
+        addEvent={addEvent}
       />
 
       {/* Maximized Panel Modal - Raw Feed */}
@@ -286,7 +389,7 @@ function App() {
         badge="AI ENHANCED"
       >
         <img
-          src={displayFrame.image_data || "https://placehold.co/640x480/0a1628/00ff88?text=Awaiting+Signal"}
+          src={displayFrame.image_data || "https://placehold.co/640x480/0A0A0A/737373?text=Awaiting+Signal"}
           alt="Enhanced Feed"
           className="video-feed"
         />
@@ -304,8 +407,18 @@ function App() {
           cause={systemStatus.cause}
         />
       </MaximizedPanel>
+
+      {/* Phase-3: Snapshot Modal */}
+      <SnapshotModal
+        isOpen={snapshotModal.isOpen}
+        onClose={closeSnapshotModal}
+        imageData={snapshotModal.imageData}
+        timestamp={snapshotModal.timestamp}
+        alertType={snapshotModal.alertType}
+      />
     </div>
   );
 }
 
 export default App;
+

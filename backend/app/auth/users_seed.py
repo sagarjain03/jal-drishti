@@ -3,6 +3,6 @@
 # format: username -> password
 
 SEEDED_USERS = {
-    "operator1": "secure123",
+    "abc": "123",
     "admin": "adminpass"
 }

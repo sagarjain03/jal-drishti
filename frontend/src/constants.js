@@ -12,11 +12,11 @@ export const SYSTEM_STATES = {
   SAFE_MODE: 'SAFE_MODE'
 };
 
-// State-to-color mapping (Defence Theme)
+// State-to-color mapping (Matte Black Theme)
 export const STATE_COLORS = {
-  CONFIRMED_THREAT: '#ff3366',    // Neon Red - immediate attention
-  POTENTIAL_ANOMALY: '#ffaa00',   // Amber - needs verification
-  SAFE_MODE: '#00ff88'            // Neon Green - normal operation
+  CONFIRMED_THREAT: '#EF4444',    // Red - immediate attention
+  POTENTIAL_ANOMALY: '#F97316',   // Amber - needs verification
+  SAFE_MODE: '#22C55E'            // Green - normal operation
 };
 
 // State display labels
@@ -61,28 +61,28 @@ export const EVENT_ICONS = {
   state_change: '📊'
 };
 
-// Defence Theme Colors
+// Matte Black Theme Colors
 export const THEME_COLORS = {
   // Backgrounds
-  bgPrimary: '#0a1628',      // Deep navy
-  bgSecondary: '#0d1b2a',    // Slightly lighter navy
-  bgPanel: '#1b2838',        // Panel background
-  bgCard: '#162231',         // Card background
+  bgPrimary: '#0A0A0A',      // Deep black
+  bgSecondary: '#0D0D0D',    // Slightly lighter black
+  bgPanel: '#121212',        // Panel background
+  bgCard: '#161616',         // Card background
 
-  // Accents
-  accentGreen: '#00ff88',    // Neon green
-  accentCyan: '#00d4ff',     // Neon cyan
-  accentRed: '#ff3366',      // Neon red
-  accentAmber: '#ffaa00',    // Warning amber
+  // Accents - Muted
+  accentGreen: '#22C55E',    // Professional green
+  accentCyan: '#6B7280',     // Muted gray (was cyan)
+  accentRed: '#EF4444',      // Red
+  accentAmber: '#F97316',    // Warning amber
 
   // Borders
-  borderPrimary: '#1e3a5f',  // Subtle blue border
-  borderGlow: '#00ff8840',   // Glow border
+  borderPrimary: '#262626',  // Dark gray border
+  borderGlow: '#26262640',   // Subtle border
 
   // Text
-  textPrimary: '#e0f2fe',    // Light blue-white
-  textSecondary: '#64748b',  // Muted gray
-  textMuted: '#475569'       // Very muted
+  textPrimary: '#E5E5E5',    // Light gray
+  textSecondary: '#A3A3A3',  // Muted gray
+  textMuted: '#737373'       // Very muted
 };
 
 // Reconnection config

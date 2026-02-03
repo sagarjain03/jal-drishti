@@ -177,11 +177,11 @@ const DetectionOverlay = ({
      */
     function getConfidenceColor(confidence) {
         if (confidence < 0.4) {
-            return '#00ff88'; // Green
+            return '#22C55E'; // Green
         } else if (confidence < 0.7) {
-            return '#ffaa00'; // Amber
+            return '#F97316'; // Amber
         } else {
-            return '#ff3366'; // Red
+            return '#EF4444'; // Red
         }
     }
 

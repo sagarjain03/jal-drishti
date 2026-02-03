@@ -26,7 +26,8 @@ const StatusBar = ({
     renderFps = 0,
     mlFps = null,
     connectionStatus = CONNECTION_STATES.DISCONNECTED,
-    inputSource = INPUT_SOURCES.DUMMY_VIDEO
+    inputSource = INPUT_SOURCES.DUMMY_VIDEO,
+    uptime = '00:00:00'
 }) => {
     const getConnectionClass = () => {
         switch (connectionStatus) {
@@ -99,6 +100,27 @@ const StatusBar = ({
         }
     };
 
+    /**
+     * Derive risk level from system state (frontend-only logic)
+     * HIGH - SAFE MODE active (degraded system)
+     * MODERATE - High latency (>300ms) or low FPS (<8)
+     * LOW - Normal operation
+     */
+    const getRiskLevel = () => {
+        if (systemState === 'SAFE_MODE') return 'HIGH';
+        if ((latencyMs && latencyMs > 300) || renderFps < 8) return 'MODERATE';
+        return 'LOW';
+    };
+
+    const getRiskLevelClass = () => {
+        const level = getRiskLevel();
+        switch (level) {
+            case 'HIGH': return 'risk-badge risk-high';
+            case 'MODERATE': return 'risk-badge risk-moderate';
+            default: return 'risk-badge risk-low';
+        }
+    };
+
     return (
         <div className="status-bar">
             <div className="status-brand">
@@ -115,6 +137,11 @@ const StatusBar = ({
                 {/* System State Badge */}
                 <div className={getStateBadgeClass()}>
                     {STATE_LABELS[systemState] || 'SAFE MODE'}
+                </div>
+
+                {/* Risk Level Badge */}
+                <div className={getRiskLevelClass()}>
+                    RISK LEVEL: {getRiskLevel()}
                 </div>
 
                 {/* Max Confidence */}
@@ -156,6 +183,12 @@ const StatusBar = ({
                         <span className="input-source-label">Source</span>
                         <span className="input-source-value">{inputSource}</span>
                     </div>
+                </div>
+
+                {/* System Uptime */}
+                <div className="uptime-display">
+                    <span className="uptime-label">Uptime</span>
+                    <span className="uptime-value">{uptime}</span>
                 </div>
 
                 {/* Connection Status */}
