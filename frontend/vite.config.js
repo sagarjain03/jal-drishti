@@ -10,4 +10,7 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __BUILD_TIMESTAMP__: Date.now(),
+  },
 })

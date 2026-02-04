@@ -172,7 +172,7 @@ const useLiveStream = (enabled = true) => {
                 try {
                     const response = JSON.parse(event.data);
 
-                   
+
 
                     // ==========================================
                     // SYSTEM MESSAGE HANDLING
@@ -267,7 +267,7 @@ const useLiveStream = (enabled = true) => {
             console.error('[WS] Failed to create WebSocket:', err);
             setConnectionStatus(CONNECTION_STATES.FAILED);
         }
-    }, [token, getReconnectDelay, handleSystemMessage, addEvent]);
+    }, [getReconnectDelay, handleSystemMessage, addEvent]);
 
     // Keep the ref updated for timeout callbacks
     useEffect(() => {

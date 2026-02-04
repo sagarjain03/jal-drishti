@@ -4,7 +4,7 @@ import StatusBar from './components/StatusBar';
 import VideoPanel from './components/VideoPanel';
 import AlertPanel from './components/AlertPanel';
 import ConnectionOverlay from './components/ConnectionOverlay';
-import LoginPage from './components/LoginPage';
+
 import SafeModeOverlay from './components/SafeModeOverlay';
 import EventTimeline from './components/EventTimeline';
 import DetectionOverlay from './components/DetectionOverlay';
@@ -12,6 +12,7 @@ import MaximizedPanel from './components/MaximizedPanel';
 import MetricsPanel from './components/MetricsPanel';
 import SnapshotModal from './components/SnapshotModal';
 import LastAlertSnapshot from './components/LastAlertSnapshot';
+import InputSourceToggle from './components/InputSourceToggle';
 import useLiveStream from './hooks/useLiveStream';
 import useFakeStream from './hooks/useFakeStream';
 import { SYSTEM_STATES, CONNECTION_STATES, INPUT_SOURCES, EVENT_TYPES } from './constants';
@@ -51,13 +52,13 @@ const formatUptime = (ms) => {
  * - Detection visual polish
  * - Click-to-maximize video panels with expand icons
  * - Snapshot capture functionality
- * - System uptime counter
+ * - System uptime counter (Smart Persistence)
  * - Last alert snapshot panel
+ * - Analytical Alert Panel
  * 
  * IMPORTANT: Backend is unchanged. All enhancements are frontend-only.
  */
 function App() {
-  const [token, setToken] = useState(null);
   const [inputSource, setInputSource] = useState(INPUT_SOURCES.DUMMY_VIDEO);
 
   // Maximize panel state: null, 'raw', or 'enhanced'
@@ -74,9 +75,36 @@ function App() {
   const [latencyHistory, setLatencyHistory] = useState([]);
   const [safeModeStartTime, setSafeModeStartTime] = useState(null);
 
-  // Phase-3: System uptime
-  const [dashboardStartTime] = useState(Date.now());
+  // Phase-3: Smart System Uptime
+  // Reset on server restart (detected via build timestamp), pause on tab close.
   const [uptime, setUptime] = useState('00:00:00');
+
+  useEffect(() => {
+    // 1. Check for server restart
+    const currentBuildTime = __BUILD_TIMESTAMP__;
+    const storedBuildTime = localStorage.getItem('jalDrishtiBuildTimestamp');
+
+    let totalActiveTime = 0;
+
+    if (!storedBuildTime || parseInt(storedBuildTime) !== currentBuildTime) {
+      // Server restarted or first run -> RESET
+      localStorage.setItem('jalDrishtiBuildTimestamp', currentBuildTime.toString());
+      localStorage.setItem('jalDrishtiTotalActiveTime', '0');
+    } else {
+      // Same session -> RESUME
+      const savedTime = localStorage.getItem('jalDrishtiTotalActiveTime');
+      totalActiveTime = savedTime ? parseInt(savedTime, 10) : 0;
+    }
+
+    // 2. Start Interval
+    const interval = setInterval(() => {
+      totalActiveTime += 1000; // increment by 1 second
+      setUptime(formatUptime(totalActiveTime));
+      localStorage.setItem('jalDrishtiTotalActiveTime', totalActiveTime.toString());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Phase-3: Snapshot modal state
   const [snapshotModal, setSnapshotModal] = useState({
@@ -95,6 +123,7 @@ function App() {
   // Destructure with defaults for when hook returns null/disconnected state
   const {
     frame = null,
+
     fps = 0,
     connectionStatus = CONNECTION_STATES.CONNECTED, // When fake, pretend connected
     reconnectAttempt = 0,
@@ -118,14 +147,6 @@ function App() {
     image_data: null,
     system: { fps: null, latency_ms: null }
   };
-
-  // Phase-3: Uptime timer effect
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setUptime(formatUptime(Date.now() - dashboardStartTime));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [dashboardStartTime]);
 
   // Track state changes and add to event timeline
   useEffect(() => {
@@ -227,9 +248,12 @@ function App() {
     });
   };
 
-  if (!token) {
-    return <LoginPage onLogin={setToken} />;
-  }
+  // Handle Input Source Toggle
+  const handleSourceToggle = (source) => {
+    // In a real app, this would switch backend streams
+    // For now, we update frontend state to show the toggle works
+    setInputSource(source === 'camera' ? 'camera' : INPUT_SOURCES.DUMMY_VIDEO);
+  };
 
   return (
     <div className={`app-container ${systemStatus.inSafeMode ? 'safe-mode-active' : ''} ${showRecoveryFlash ? 'recovery-flash' : ''}`}>
@@ -253,7 +277,7 @@ function App() {
       />
 
       <main className="main-content">
-        {/* Event Timeline Panel (Left) */}
+        {/* Left Sidebar */}
         <div className="left-sidebar">
           <EventTimeline events={events} />
           <MetricsPanel
@@ -268,6 +292,12 @@ function App() {
           />
           {/* Phase-3: Last Alert Snapshot Panel */}
           <LastAlertSnapshot snapshot={lastAlertSnapshot} />
+
+          {/* Phase-3: Input Source Toggle (Fills empty space) */}
+          <InputSourceToggle
+            currentSource={inputSource === 'camera' ? 'camera' : 'video'}
+            onToggle={handleSourceToggle}
+          />
         </div>
 
         {/* Real-time RAW Feed - Click to maximize */}
@@ -350,6 +380,16 @@ function App() {
           </div>
         </div>
 
+        {/* Alert Panel - Moved inside main-content to span columns */}
+        <div className="alert-panel-wrapper">
+          <AlertPanel
+            currentState={displayFrame.state}
+            detections={displayFrame.detections}
+            maxConfidence={displayFrame.max_confidence}
+            addEvent={addEvent}
+          />
+        </div>
+
         {/* Connection Overlay - non-blocking, canvas stays mounted */}
         <ConnectionOverlay
           connectionStatus={connectionStatus}
@@ -357,14 +397,6 @@ function App() {
           onRetry={manualReconnect}
         />
       </main>
-
-      {/* Alert Panel at Bottom */}
-      <AlertPanel
-        currentState={displayFrame.state}
-        detections={displayFrame.detections}
-        maxConfidence={displayFrame.max_confidence}
-        addEvent={addEvent}
-      />
 
       {/* Maximized Panel Modal - Raw Feed */}
       <MaximizedPanel

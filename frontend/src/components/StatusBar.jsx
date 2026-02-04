@@ -130,7 +130,6 @@ const StatusBar = ({
                     className="brand-logo"
                 />
                 <h1 className="brand-title">JAL-DRISHTI</h1>
-                <span className="brand-version">PHASE-2</span>
             </div>
 
             <div className="status-metrics">
@@ -156,7 +155,7 @@ const StatusBar = ({
                 <div className="metric-group right-align">
                     <span className="metric-label">LATENCY</span>
                     <span className={`metric-value ${getLatencyColorClass(latencyMs)}`}>
-                        {latencyMs !== null ? `${latencyMs}ms` : '-- ms'}
+                        {latencyMs !== null ? `${Number(latencyMs).toFixed(2)}ms` : '-- ms'}
                     </span>
                 </div>
 
