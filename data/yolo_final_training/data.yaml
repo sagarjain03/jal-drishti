@@ -1,8 +1,0 @@
-
-path: C:\Users\harag\OneDrive\Documents\coding\mission_thapar\jal-drishti\data\yolo_final_training
-train: images
-val: images
-names:
-  0: mine
-  1: diver
-  2: submarine

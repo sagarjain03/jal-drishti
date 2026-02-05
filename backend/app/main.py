@@ -1,3 +1,6 @@
+import os
+os.environ["NO_PROXY"] = "localhost,127.0.0.1,0.0.0.0"
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -258,4 +261,4 @@ def read_root():
 # Entry point for debugging if run directly
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=9000, reload=True)

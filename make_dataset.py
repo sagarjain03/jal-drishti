@@ -12,67 +12,78 @@ import sys
 # --- CONFIGURATION ---
 
 # 1. Define your Source Folders
+# --- CONFIGURATION FOR 4-CLASS DETECTION ---
+# Target Classes: 
+# 0 = Sea Mine 
+# 1 = Diver 
+# 2 = Drone (AUV/ROV) 
+# 3 = Submarine
+
 RAW_SOURCES = [
     {
-        "name": "trash_dataset",
-        "path": "data/raw_downloads/underwater-trash", 
+        "name": "mines_dataset",
+        "path": "data/raw_dataset/mines",
+        "limit": 1500  # High priority for the new class
+    },
+    {
+        "name": "drones_dataset",
+        "path": "data/raw_dataset/drones", 
         "limit": 1000
     },
     {
         "name": "duo_dataset",
-        "path": "data/raw_downloads/duo", 
-        "limit": 1000
+        "path": "data/raw_dataset/duo",  # Great for 'robot'/'rov' classes
+        "limit": 300
     },
     {
         "name": "sub_dataset",
-        "path": "data/raw_downloads/underwater-submarines", 
+        "path": "data/raw_dataset/underwater-submarines", 
         "limit": 500
     },
-    {"name": "sub_dataset_2", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_3", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_4", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_5", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_6", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_7", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_8", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_9", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
-    {"name": "sub_dataset_10", "path": "data/raw_downloads/underwater-submarines", "limit": 100},
     {
-    "name": "real_diver_dataset",
-    "path": "data/raw_downloads/diver-real", 
-    "limit": 600
+        "name": "real_diver_dataset",
+        "path": "data/raw_dataset/diver-real", 
+        "limit": 250
+    },
+    {
+        "name": "trash_dataset",
+        "path": "data/raw_dataset/underwater-trash", 
+        "limit": 100 # Use as 'Negative' samples (Background)
     }
 ]
 
 # 2. Define the Intelligent Mapping Rules
 # Format: "original_class_name": target_class_id
-# Target IDs: 0=Mine, 1=Diver, 2=Submarine, -1=Ignore(Background)
-# Note: These keywords match standard dataset class names. 
+# NEW Target IDs: 0=Mine, 1=Diver, 2=Drone, 3=Submarine, -1=Ignore/Background
 
 SMART_MAPPING = {
-    # --- CLASS 0: MINES (Proxies: Trash/Debris) ---
-    "trash": 0, "plastic": 0, "metal": 0, "debris": 0, 
-    "bottle": 0, "can": 0, "cup": 0, "net": 0, "tire": 0,
-    "bucket": 0, "drum": 0, "pipe": 0, "rubbish": 0,
-    "container": 0, "fish trap": 0, "cage": 0,
-    
+    # --- CLASS 0: SEA MINES (Real Naval Mines) ---
+    "mine": 0, "naval-mine": 0, "round-mine": 0, "naval mine": 0, "sea mine": 0,
+
     # --- CLASS 1: DIVERS (Humans) ---
     "diver": 1, "human": 1, "person": 1, "scuba": 1, 
-    "scuba diver": 1, "swimmer": 1,
+    "scuba diver": 1, "swimmer": 1, "diver_yolo": 1,
 
-    # --- CLASS 2: SUBMARINES (ROVs/AUVs) ---
-    "submarine": 2, "sub": 2, "rov": 2, "auv": 2, 
-    "robot": 2, "uuv": 2, "vehicle": 2,
+    # --- CLASS 2: DRONES (ROVs / AUVs / Small Robots) ---
+    "robot": 2, "rov": 2, "auv": 2, "drone": 2, 
+    "uuv": 2, "vehicle": 2, "remotely operated vehicle": 2,
 
-    # --- IGNORE (-1): Bio-life & Background ---
-    # (These become empty background images for YOLO to learn 'nothingness')
+    # --- CLASS 3: SUBMARINES (Large Manned Vessels) ---
+    "submarine": 3, "sub": 3, 
+
+    # --- IGNORE (-1): BACKGROUND & TRASH ---
+    # CRITICAL CHANGE: We map Trash to -1. 
+    # This teaches the model: "A bottle is NOT a mine. Ignore it."
+    "trash": -1, "plastic": -1, "metal": -1, "debris": -1, 
+    "bottle": -1, "can": -1, "cup": -1, "net": -1, "tire": -1,
+    "bucket": -1, "drum": -1, "pipe": -1, "rubbish": -1,
+    
+    # Bio-life is also background
     "fish": -1, "shark": -1, "turtle": -1, "plant": -1, 
     "coral": -1, "starfish": -1, "jellyfish": -1, "sea urchin": -1,
-    "background": -1, "water": -1, "reef": -1, 
-    # Specifics found in DUO dataset logs:
+    "background": -1, "water": -1, "reef": -1,
     "echinus": -1, "holothurian": -1, "scallop": -1, "shell": -1, "sea_star": -1
 }
-
 OUTPUT_DIR = "data/yolo_final_training"
 GAN_WEIGHTS = "ml-engine/weights/funie_generator.pth"
 
@@ -164,9 +175,19 @@ def process_and_save(img_path, label_path, output_root, model, device, source_id
     
     return True
 
+def remove_readonly(func, path, _):
+    "Clear the readonly bit and reattempt the removal"
+    import stat
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
 def main():
     if os.path.exists(OUTPUT_DIR):
-        shutil.rmtree(OUTPUT_DIR)
+        try:
+            shutil.rmtree(OUTPUT_DIR, onerror=remove_readonly)
+        except Exception as e:
+            print(f"⚠️ Could not fully delete output dir: {e}. Continuing...")
+            
     for folder in ["images", "labels"]:
         os.makedirs(os.path.join(OUTPUT_DIR, folder), exist_ok=True)
 
@@ -203,7 +224,8 @@ val: images
 names:
   0: mine
   1: diver
-  2: submarine
+  2: drone
+  3: submarine
 """
     with open(os.path.join(OUTPUT_DIR, "data.yaml"), "w") as f:
         f.write(yaml_content)
