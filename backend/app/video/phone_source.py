@@ -52,8 +52,8 @@ class PhoneCameraSource:
                             can be used to check for graceful shutdown.
         """
         # Thread-safe queue for frames from WebSocket
-        # PHASE-3 CORE: maxsize=4 to handle brief bursts
-        self.frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=4)
+        # PHASE-3 FIX: maxsize=30 to handle camera bursts
+        self.frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=30)
         
         self.timeout = timeout
         self.running = False

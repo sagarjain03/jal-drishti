@@ -34,6 +34,9 @@ const useLiveStream = (enabled = true) => {
     // Event log for timeline
     const [events, setEvents] = useState([]);
 
+    // PHASE-3 FIX: Track if viewer is blocked (prevents reconnect storm)
+    const [viewerBlocked, setViewerBlocked] = useState(false);
+
     // Refs for logic that shouldn't trigger re-renders
     const wsRef = useRef(null);
     const frameCountRef = useRef(0);
@@ -142,6 +145,19 @@ const useLiveStream = (enabled = true) => {
                 // Initial connection confirmation
                 addEvent(EVENT_TYPES.CONNECTION, 'WebSocket Connected', 'success');
                 console.log('[WS] Connection confirmed by backend');
+                break;
+
+            // PHASE-3 FIX: Handle viewer blocked/allowed status
+            case 'viewer_blocked':
+                setViewerBlocked(true);
+                addEvent(EVENT_TYPES.CONNECTION, 'View disabled by operator', 'warning');
+                console.log('[WS] Viewer blocked by operator - NOT reconnecting');
+                break;
+
+            case 'viewer_allowed':
+                setViewerBlocked(false);
+                addEvent(EVENT_TYPES.CONNECTION, 'View enabled by operator', 'success');
+                console.log('[WS] Viewer allowed by operator');
                 break;
 
             default:
@@ -328,7 +344,9 @@ const useLiveStream = (enabled = true) => {
         // New exports for UI enhancement
         systemStatus,
         events,
-        addEvent
+        addEvent,
+        // PHASE-3 FIX: Viewer blocked state
+        viewerBlocked
     };
 };
 

@@ -1,23 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE_URL, SOURCE_STATES } from '../constants';
 import '../App.css';
 
 /**
  * InputSourceToggle Component
  * 
- * PHASE-3 CORE: Runtime source switching via backend API.
- * - Fetches server info on mount
- * - Calls POST /api/source/select on toggle
- * - Shows camera URL when camera mode is active
+ * PHASE-3 FIX: Optimistic UI + Source Status Polling
+ * - Updates UI immediately on click (optimistic)
+ * - Polls backend for reconciliation (every 1s)
+ * - No page reload required
  */
 const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) => {
     const [serverInfo, setServerInfo] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    // PHASE-3 FIX: Optimistic UI state (local, instant)
+    const [optimisticState, setOptimisticState] = useState(null);
+    const pollingRef = useRef(null);
+
     const isCamera = currentSource === 'camera';
-    const isWaiting = sourceState === SOURCE_STATES.CAMERA_WAITING;
-    const isIdle = sourceState === SOURCE_STATES.IDLE;
+
+    // Use optimistic state if set, otherwise use prop
+    const displayState = optimisticState || sourceState;
+    const isWaiting = displayState === SOURCE_STATES.CAMERA_WAITING;
+    const isIdle = displayState === SOURCE_STATES.IDLE;
 
     // Fetch server info on mount
     useEffect(() => {
@@ -35,12 +42,61 @@ const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) =>
         fetchServerInfo();
     }, []);
 
-    // Handle source toggle with API call
+    // PHASE-3 FIX: Poll backend status for reconciliation
+    useEffect(() => {
+        const pollStatus = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/source/status`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const backendState = data.state;
+
+                    // Reconcile: if optimistic state differs from backend, update
+                    if (optimisticState && optimisticState !== backendState) {
+                        console.log(`[InputSourceToggle] Reconciling: ${optimisticState} -> ${backendState}`);
+                        setOptimisticState(null); // Clear optimistic, trust backend
+                    }
+
+                    // Update parent with backend state
+                    if (backendState !== sourceState) {
+                        const sourceType = data.source || (backendState.includes('VIDEO') ? 'video' : 'camera');
+                        onToggle(sourceType, backendState);
+                    }
+                }
+            } catch (err) {
+                // Silent fail - will retry on next poll
+            }
+        };
+
+        // Start polling every 1 second
+        pollingRef.current = setInterval(pollStatus, 1000);
+
+        // Initial poll
+        pollStatus();
+
+        return () => {
+            if (pollingRef.current) {
+                clearInterval(pollingRef.current);
+            }
+        };
+    }, [optimisticState, sourceState, onToggle]);
+
+    // Handle source toggle with OPTIMISTIC UI
     const handleToggle = useCallback(async (sourceType) => {
         if (isLoading) return;
 
         setIsLoading(true);
         setError(null);
+
+        // PHASE-3 FIX: Optimistic update IMMEDIATELY
+        const optimisticNewState = sourceType === 'camera'
+            ? SOURCE_STATES.CAMERA_WAITING
+            : SOURCE_STATES.VIDEO_ACTIVE;
+        setOptimisticState(optimisticNewState);
+
+        // Update parent immediately for instant UI feedback
+        onToggle(sourceType, optimisticNewState);
+        if (onReset) onReset();
 
         try {
             const res = await fetch(`${API_BASE_URL}/api/source/select`, {
@@ -52,14 +108,16 @@ const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) =>
             const data = await res.json();
 
             if (data.success) {
-                // Reset counters on successful switch
-                if (onReset) onReset();
-                onToggle(sourceType, data.state);
+                // Backend confirmed - clear optimistic (polling will reconcile)
+                console.log(`[InputSourceToggle] Backend confirmed: ${data.state}`);
             } else {
+                // Backend failed - revert optimistic
                 setError(data.error || 'Failed to switch source');
+                setOptimisticState(null);
             }
         } catch (err) {
             setError('Network error');
+            setOptimisticState(null);
             console.error('[InputSourceToggle] API error:', err);
         } finally {
             setIsLoading(false);
@@ -70,9 +128,9 @@ const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) =>
     const getStatusText = () => {
         if (isLoading) return 'SWITCHING...';
         if (isWaiting) return 'WAITING FOR PHONE';
-        if (sourceState === SOURCE_STATES.VIDEO_ACTIVE) return 'VIDEO ACTIVE';
-        if (sourceState === SOURCE_STATES.CAMERA_ACTIVE) return 'CAMERA ACTIVE';
-        if (sourceState === SOURCE_STATES.ERROR) return 'ERROR';
+        if (displayState === SOURCE_STATES.VIDEO_ACTIVE) return 'VIDEO ACTIVE';
+        if (displayState === SOURCE_STATES.CAMERA_ACTIVE) return 'CAMERA ACTIVE';
+        if (displayState === SOURCE_STATES.ERROR) return 'ERROR';
         if (isIdle) return 'SELECT SOURCE';
         return isCamera ? 'CAMERA' : 'VIDEO';
     };
@@ -80,9 +138,9 @@ const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) =>
     // Get status color class
     const getStatusClass = () => {
         if (isLoading || isWaiting) return 'status-waiting';
-        if (sourceState === SOURCE_STATES.VIDEO_ACTIVE) return 'status-video';
-        if (sourceState === SOURCE_STATES.CAMERA_ACTIVE) return 'status-camera';
-        if (sourceState === SOURCE_STATES.ERROR) return 'status-error';
+        if (displayState === SOURCE_STATES.VIDEO_ACTIVE) return 'status-video';
+        if (displayState === SOURCE_STATES.CAMERA_ACTIVE) return 'status-camera';
+        if (displayState === SOURCE_STATES.ERROR) return 'status-error';
         if (isIdle) return 'status-idle';
         return isCamera ? 'status-camera' : 'status-video';
     };
@@ -153,7 +211,7 @@ const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) =>
                 <div className="signal-strength">
                     <span>STATE:</span>
                     <span className={`state-badge ${isIdle ? 'idle' : 'active'}`}>
-                        {sourceState || 'UNKNOWN'}
+                        {displayState || 'UNKNOWN'}
                     </span>
                 </div>
                 <span className="source-id">
@@ -165,4 +223,3 @@ const InputSourceToggle = ({ currentSource, onToggle, sourceState, onReset }) =>
 };
 
 export default InputSourceToggle;
-
