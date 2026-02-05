@@ -61,7 +61,7 @@ class JalDrishtiEngine:
         try:
             self.yolo = YOLO(YOLO_WEIGHTS)
             self.yolo.to(self.device)
-            logger.info("[Core] YOLOv8 model loaded.")
+            logger.info(f"[Core] YOLOv8 model loaded. Classes: {self.yolo.names}")
         except Exception as e:
             logger.warning(f"[Core] Could not load YOLO weights at {YOLO_WEIGHTS}. Downloading/Using default yolov8n.pt")
             self.yolo = YOLO("yolov8n.pt") # Fallback to auto-download
@@ -112,8 +112,9 @@ class JalDrishtiEngine:
     def infer(self, frame: np.ndarray):
         """
         Executes the 7-Step Phase-2 Pipeline with GPU/FP16 optimization.
+        Executes the Dual-Stream Pipeline.
         Input: RGB numpy array (H, W, 3)
-        Output: Strict JSON Schema + Enhanced Frame (np.ndarray)
+        Output: Strict JSON Schema + Annotated Frame (np.ndarray)
         """
         import time
         start_time = time.time()
@@ -126,12 +127,11 @@ class JalDrishtiEngine:
 
         try:
             # --- Step 2: Pre-process (GAN Side) ---
-            # Resize to 256x256 (Native GAN resolution) for optimal FPS (User requested revert from 384)
+            # Resize to 256x256 (Native GAN resolution)
             original_h, original_w = frame.shape[:2]
             img_resized = cv2.resize(frame, (256, 256))
             
-            # Normalize to [-1, 1]: (x - 127.5) / 127.5
-            # Convert BGR (OpenCV) -> RGB (GAN expectation)
+            # Normalize to [-1, 1]
             img_resized_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
             img_tensor = torch.from_numpy(img_resized_rgb).float().permute(2, 0, 1).unsqueeze(0).to(self.device)
             img_tensor = (img_tensor - 127.5) / 127.5
@@ -144,69 +144,145 @@ class JalDrishtiEngine:
                 else:
                     enhanced_tensor = self.gan(img_tensor)
 
-            # --- Step 4: Normalization Bridge (CRITICAL) ---
-            # Convert [-1, 1] -> [0, 1]: (x + 1) / 2
+            # --- Step 4: Post-Process ---
             enhanced_tensor = (enhanced_tensor + 1.0) / 2.0
-            enhanced_tensor = torch.clamp(enhanced_tensor, 0.0, 1.0) # Safety Clamp
-
-            # Resize to YOLO input size (640x640) - Actually, we want to restore original aspect ratio
-            # Use PyTorch Interpolation as per ML Doc (better quality)
-            # Input: (1, 3, 256, 256) -> Output: (1, 3, original_h, original_w)
+            enhanced_tensor = torch.clamp(enhanced_tensor, 0.0, 1.0)
+            
+            # Resize back to original
             enhanced_tensor = F.interpolate(
                 enhanced_tensor.unsqueeze(0) if len(enhanced_tensor.shape) == 3 else enhanced_tensor, 
                 size=(original_h, original_w), 
                 mode='bilinear', 
                 align_corners=False
             )
-            
-            # --- Output Clamping (Risk B Fix) ---
-            # Ensure values are strictly [0, 1] before casting
             enhanced_tensor = torch.clamp(enhanced_tensor, 0.0, 1.0)
-
-            # Convert to numpy uint8
-            # Shape is (1, 3, H, W) -> squeeze -> (3, H, W) -> permute -> (H, W, 3)
             enhanced_np = enhanced_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
-            
-            # Multiply by 255 and CLIP to avoid wrap-around noise
             enhanced_np_uint8 = np.clip(enhanced_np * 255, 0, 255).astype(np.uint8)
             
-            # Convert RGB (GAN) -> BGR (OpenCV/YOLO expectation)
-            enhanced_np_uint8 = cv2.cvtColor(enhanced_np_uint8, cv2.COLOR_RGB2BGR)
+            # Convert RGB (GAN) -> BGR (OpenCV)
+            enhanced_bgr = cv2.cvtColor(enhanced_np_uint8, cv2.COLOR_RGB2BGR)
 
-            # Final output for display/inference
-            enhanced_cv = enhanced_np_uint8
+            # --- Step 5: CLAHE (Enhancement) ---
+            enhanced_final = self.apply_clahe(enhanced_bgr)
 
-            # --- Step 5: YOLOv8 Inference with FP16 Support ---
-            if self.use_fp16 and self.device.type == "cuda":
-                # YOLO supports device parameter
-                results = self.yolo.predict(enhanced_cv, verbose=False, conf=CONFIDENCE_THRESHOLD, device=self.device, half=True)
-            else:
-                results = self.yolo.predict(enhanced_cv, verbose=False, conf=CONFIDENCE_THRESHOLD, device=self.device)
+            # --- Step 6: Dual-Stream YOLO Inference (OPTIMIZED) ---
             
-            # --- Step 6: Confidence & Safety Logic ---
+            # Combine both images into a list for Batch Processing
+            # This runs 2x faster than calling predict() twice
+            batch_images = [frame, enhanced_final]
+            
+            # LOGIC PRESERVATION: Determine FP16 (Half-Precision) setting
+            # This ensures we keep the optimization from the code we just deleted
+            do_half = (self.use_fp16 and self.device.type == "cuda")
+            
+            # Run Inference once
+            # We use conf=0.15 (Low) intentionally so our custom 'process_results' 
+            # function can handle the specific class thresholds (e.g. Drone=0.15)
+            batch_results = self.yolo.predict(
+                batch_images, 
+                verbose=False, 
+                conf=0.15, 
+                device=self.device, 
+                half=do_half  # <--- Optimization Preserved Here
+            )
+            
+            # Split results back
+            results_raw = [batch_results[0]]      # Result for 'frame'
+            results_enhanced = [batch_results[1]] # Result for 'enhanced_final''
+            
+            # --- Step 7: Merge & Annotate ---
             detections = []
             max_conf = 0.0
             
-            result = results[0]
-            boxes = result.boxes
+            # We draw on the Enhanced Frame because it looks better (User requirement)
+            # OR we draw on Raw? User said "Draw on Enhanced Feed because it looks cooler".
+            annotated_frame = enhanced_final.copy()
             
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                conf = float(box.conf[0])
-                cls = int(box.cls[0])
-                label = self.yolo.names[cls]
+            # Helper to process results with CLASS-SPECIFIC THRESHOLDS
+            raw_detections_list = []
+
+            def process_results(results, source_tag):
+                nonlocal max_conf
+                if not results: return
                 
-                # We can enforce "anomaly" label per plan constraint, or keep real labels
-                # User requested specific labels now
+                result = results[0]
+                for box in result.boxes:
+                    conf = float(box.conf[0])
+                    cls = int(box.cls[0])
+                    
+                    # 🛡️ GATEKEEPER LOGIC 🛡️
+                    # Har class ka apna cutoff set karo
+                    min_thresh = 0.25 # Default
+                    
+                    if cls == 2:   # DRONE (Mushkil hai, allow low confidence)
+                        min_thresh = 0.15
+                    elif cls == 1: # DIVER (Insaan hai, model sure hona chahiye)
+                        min_thresh = 0.55  # 👈 Isse False Positives kam honge
+                    elif cls == 0: # MINE
+                        min_thresh = 0.40
+                    elif cls == 3: # SUBMARINE
+                        min_thresh = 0.40
+                        
+                    # Agar confidence cutoff se kam hai, toh ignore karo
+                    if conf < min_thresh:
+                        continue
+
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    label = self.yolo.names[cls]
+                    
+                    # Store in intermediate list for Smart NMS
+                    raw_detections_list.append({
+                        "box": [int(x1), int(y1), int(x2), int(y2)],
+                        "conf": conf,
+                        "cls": cls,
+                        "label": label,
+                        "source": source_tag
+                    })
+                    
+                    if conf > max_conf:
+                        max_conf = conf
+
+            # Process both streams
+            process_results(results_raw, "RAW_SENSOR")
+            process_results(results_enhanced, "AI_ENHANCED")
+            
+            # --- Step 7.5: SMART NMS (The Fix) ---
+            final_detections = self.clean_detections(raw_detections_list)
+
+            # --- Step 7.6: Draw & Format ---
+            for det in final_detections:
+                x1, y1, x2, y2 = det["box"]
+                label = det["label"]
+                conf = det["conf"]
+                source_tag = det["source"]
                 
+                # Add to final response list
                 detections.append({
-                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "bbox": [x1, y1, x2, y2],
                     "confidence": round(conf, 3),
-                    "label": label  # Using specific label (e.g. "shark", "diver")
+                    "label": label,
+                    "source": source_tag
                 })
+
+                # --- ANNOTATION ---
+                # Green for Raw, Orange for AI
+                color = (0, 255, 0) if source_tag == "RAW_SENSOR" else (0, 140, 255)
                 
-                if conf > max_conf:
-                    max_conf = conf
+                # Draw Box
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                
+                # Draw Label (Simplified, NO source tag)
+                label_text = f"{label} {int(conf*100)}%"
+                (w, h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                
+                # Ensure text never goes off-screen
+                text_y = max(y1 - 5, 20)
+                
+                cv2.rectangle(annotated_frame, (x1, text_y - 15), (x1 + w, text_y + 5), color, -1)
+                
+                # Black text (0,0,0) for better contrast on bright Green/Orange
+                cv2.putText(annotated_frame, label_text, (x1, text_y), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
             # Determine System State
             if max_conf > HIGH_CONFIDENCE_THRESHOLD:
@@ -214,7 +290,7 @@ class JalDrishtiEngine:
             elif max_conf > CONFIDENCE_THRESHOLD:
                 state = STATE_POTENTIAL_ANOMALY
             else:
-                state = STATE_SAFE_MODE # Even with no detections or low confidence
+                state = STATE_SAFE_MODE
                 
             # --- Step 7: Output Contract ---
             latency_ms = (time.time() - start_time) * 1000
@@ -226,51 +302,79 @@ class JalDrishtiEngine:
                 "latency_ms": round(latency_ms, 2)
             }
             
-            # Branching Pipeline:
-            # 1. AI (YOLO) used 'enhanced_cv' (Scientific Red) for max accuracy.
-            # 2. Human (UI) gets 'display_frame' (Cinematic Blue) for aesthetics.
-            display_frame = self.apply_cinematic_filter(enhanced_cv)
-            
-            return response, display_frame
+            # Return the annotated enhanced frame directly (No blue filter!)
+            return response, annotated_frame
 
         except Exception as e:
             logger.error(f"[Core] Pipeline Error: {e}", exc_info=True)
             return self._build_safe_response(), frame
 
-    def _build_safe_response(self):
-        return {
-            "timestamp": datetime.datetime.now().isoformat(),
-            "state": STATE_SAFE_MODE,
-            "max_confidence": 0.0,
-            "detections": []
-        }
 
-    def apply_cinematic_filter(self, frame):
+    def clean_detections(self, detections, iou_threshold=0.4):
         """
-        Converts 'Scientific Red' GAN output to 'Cinematic Blue' for UI.
-        Optimized for 15+ FPS on CPU.
+        Smart Cleaner with 'Diver Priority'.
+        Rule: If Diver (1) and Submarine (3) overlap, KILL the Submarine.
         """
-        # 1. Split Channels (BGR format in OpenCV)
-        b, g, r = cv2.split(frame)
-
-        # 2. Color Grading (Temperature Shift)
-        # Reduce Red (Remove the "Muddy/Sepia" look)
-        r = cv2.multiply(r, 0.75) 
-        # Boost Blue (Add the "Deep Ocean" look)
-        b = cv2.multiply(b, 1.2)
-        # Green usually stays neutral or slightly reduced
-        g = cv2.multiply(g, 0.95)
-
-        # 3. Merge back
-        # We use cv2.merge which is fast, and ensure types are safe
-        cold_frame = cv2.merge([b, g, r])
+        # 1. Sort by confidence (Highest first)
+        detections.sort(key=lambda x: x['conf'], reverse=True)
         
-        # 4. Clip values to 0-255 range to prevent noise artifacts
-        cold_frame = np.clip(cold_frame, 0, 255).astype(np.uint8)
+        remove_indices = set()
+        
+        for i in range(len(detections)):
+            if i in remove_indices: continue
+            
+            for j in range(i + 1, len(detections)):
+                if j in remove_indices: continue
+                
+                # --- IoU Calculation ---
+                boxA = detections[i]['box']
+                boxB = detections[j]['box']
+                
+                xA = max(boxA[0], boxB[0])
+                yA = max(boxA[1], boxB[1])
+                xB = min(boxA[2], boxB[2])
+                yB = min(boxA[3], boxB[3])
+                
+                interArea = max(0, xB - xA) * max(0, yB - yA)
+                boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+                boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+                iou = interArea / float(boxAArea + boxBArea - interArea)
+                
+                # --- LOGIC: CONFLICT RESOLUTION ---
+                if iou > iou_threshold:
+                    cls1 = detections[i]['cls']
+                    cls2 = detections[j]['cls']
+                    
+                    # 🔥 THE HACK: Diver (1) vs Submarine (3)
+                    # If one is Diver and the other is Submarine, ALWAYS remove the Submarine.
+                    if (cls1 == 1 and cls2 == 3):
+                        remove_indices.add(j) # Remove Submarine (at j)
+                        continue
+                    elif (cls1 == 3 and cls2 == 1):
+                        remove_indices.add(i) # Remove Submarine (at i)
+                        break # 'i' is gone, stop checking 'j's for it
+                    
+                    # Standard Logic: Remove lower confidence one
+                    remove_indices.add(j)
 
-        # 5. Contrast Boost (De-hazing)
-        # Underwater images are flat; we stretch the histogram slightly
-        # alpha=1.2 (Contrast), beta=-15 (Brightness reduction to make it 'deep')
-        cinematic_frame = cv2.convertScaleAbs(cold_frame, alpha=1.2, beta=-15)
+        # Return only the survivors
+        return [d for k, d in enumerate(detections) if k not in remove_indices]
 
-        return cinematic_frame
+    def apply_clahe(self, img_bgr):
+        """
+        Applies Contrast Limited Adaptive Histogram Equalization 
+        to the Luminance channel.
+        """
+        # 1. Convert BGR to LAB color space
+        lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # 2. Apply CLAHE to L-channel (Lightness)
+        # clipLimit=2.0 is the standard "safe" value. Higher = more contrast but more noise.
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l_enhanced = clahe.apply(l)
+        
+        # 3. Merge and convert back to BGR
+        lab_enhanced = cv2.merge((l_enhanced, a, b))
+        final_img = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
+        return final_img

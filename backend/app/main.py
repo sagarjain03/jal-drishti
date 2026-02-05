@@ -1,3 +1,6 @@
+import os
+os.environ["NO_PROXY"] = "localhost,127.0.0.1,0.0.0.0"
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
