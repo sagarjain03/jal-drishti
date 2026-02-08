@@ -9,6 +9,8 @@ import logging
 
 # Ensure we can import from sibling directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# MILESTONE-2: Add backend path for tactical_db integration
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../backend")))
 
 from ultralytics import YOLO
 from img_enhancement.funie_gan.nets.funiegan import GeneratorFunieGAN as FunieGANGenerator
@@ -18,11 +20,24 @@ from .config import (
     STATE_CONFIRMED_THREAT, STATE_POTENTIAL_ANOMALY, STATE_SAFE_MODE
 )
 
+# MILESTONE-2: Tactical Override System
+# These imports may fail if backend not in path - fallback gracefully
+try:
+    from app.services.tactical_db import get_tactical_db, TacticalDB
+    from app.services.training_harvester import get_training_harvester, TrainingHarvester
+    M2_AVAILABLE = True
+except ImportError:
+    M2_AVAILABLE = False
+    get_tactical_db = None
+    get_training_harvester = None
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 print("[Core] Initializing JalDrishti Engine...")
+if M2_AVAILABLE:
+    print("[Core] MILESTONE-2: Tactical Override System ENABLED")
 
 class JalDrishtiEngine:
     def __init__(self, use_gpu=True, use_fp16=True):
@@ -70,8 +85,34 @@ class JalDrishtiEngine:
         # 2a. Track History for Persistence
         self.track_history = {} # track_id -> frames_seen
 
+        # MILESTONE-2: Tactical Override System
+        self.tactical_db = None
+        self.harvester = None
+        if M2_AVAILABLE:
+            try:
+                self.tactical_db = get_tactical_db()
+                self.harvester = get_training_harvester()
+                logger.info("[Core] MILESTONE-2: Tactical DB and Harvester initialized")
+            except Exception as e:
+                logger.warning(f"[Core] MILESTONE-2: Could not initialize tactical system: {e}")
+
+        # =========================================================
+        # ISSUE 1 FIX: Persistence-Based Anomaly Gating
+        # Only escalate to POTENTIAL_ANOMALY after N continuous frames
+        # =========================================================
+        self.ANOMALY_PERSISTENCE_THRESHOLD = 15  # Frames before alert
+        self.anomaly_persistence = {}  # track_id -> consecutive_anomaly_frames
+        
+        # =========================================================
+        # ISSUE 2 FIX: State-Change-Only Alerts
+        # Only emit alerts when state CHANGES, not every frame
+        # =========================================================
+        self.last_state = STATE_SAFE_MODE
+        self.state_change_frame = 0  # Track when state last changed
+
         # Warmup
         logger.info("[Core] Engine ready.")
+        logger.info(f"[Core] Anomaly persistence threshold: {self.ANOMALY_PERSISTENCE_THRESHOLD} frames")
     
     def _init_device(self, use_gpu=True):
         """
@@ -219,21 +260,56 @@ class JalDrishtiEngine:
                     if conf > max_conf:
                         max_conf = conf
 
+                    # =========================================================
+                    # MILESTONE-2: TACTICAL INTERCEPT
+                    # Check if operator has tagged this object
+                    # If yes, OVERRIDE YOLO classification and force THREAT bucket
+                    # =========================================================
+                    if self.tactical_db is not None:
+                        user_label = self.tactical_db.get_override(int(track_id))
+                        if user_label:
+                            # Operator override active - use human label
+                            # Force into threats bucket with tactical marker
+                            threats.append((box, track_id, conf, cls_id, user_label))
+                            logger.debug(f"[M2] Tactical override: ID {track_id} -> {user_label}")
+                            continue  # Skip normal bucket sorting
+                    # =========================================================
+
                     # --- BUCKET 1: THREATS (High Conf Specifics) ---
-                    # Red Box
+                    # Red Box - No persistence needed, immediate alert
                     if cls_id in SPECIFIC_THREATS and conf > 0.60:
-                        threats.append((box, track_id, conf, cls_id))
+                        threats.append((box, track_id, conf, cls_id, None))
+                        # Reset anomaly persistence if object becomes threat
+                        self.anomaly_persistence[track_id] = 0
 
                     # --- BUCKET 2: ANOMALIES (Shapes OR Low Conf Specifics) ---
-                    # Yellow Box
+                    # Yellow Box - ISSUE 1 FIX: Requires persistence gating
                     elif (cls_id in GEOMETRIC_SHAPES and conf > 0.35) or \
                          (cls_id in SPECIFIC_THREATS and 0.35 < conf <= 0.60):
-                        anomalies.append((box, track_id, conf, cls_id))
+                        
+                        # =========================================================
+                        # ISSUE 1 FIX: Persistence-Based Anomaly Gating
+                        # Track consecutive anomaly frames per object
+                        # Only add to visible anomalies if above threshold
+                        # =========================================================
+                        self.anomaly_persistence[track_id] = self.anomaly_persistence.get(track_id, 0) + 1
+                        consecutive_frames = self.anomaly_persistence[track_id]
+                        
+                        if consecutive_frames >= self.ANOMALY_PERSISTENCE_THRESHOLD:
+                            # Threshold met - escalate to visible anomaly
+                            anomalies.append((box, track_id, conf, cls_id))
+                        else:
+                            # Silent tracking - don't alert operator yet
+                            # Treat as neutral for now (hidden but tracked)
+                            neutrals.append((box, track_id, conf, cls_id))
+                        # =========================================================
                         
                     # --- BUCKET 3: NEUTRALS (Everything Else) ---
                     # Hidden (filtered out visually) but logically present
                     else:
                         neutrals.append((box, track_id, conf, cls_id))
+                        # Reset anomaly persistence if object becomes neutral
+                        self.anomaly_persistence[track_id] = 0
 
             # --- VISUALIZATION STRATEGY ---
             
@@ -266,18 +342,31 @@ class JalDrishtiEngine:
                             cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), font_thickness)
 
             # 1. DRAW THREATS (RED)
-            for (box, track_id, conf, cls_id) in threats:
-                # "Fix: Emulate Strict Labeling" - No ghost boxes
-                label_name = self.yolo.names[int(cls_id)].upper()
-                label = f"{label_name} {int(conf*100)}%"
+            # Threats now contain 5 elements: (box, track_id, conf, cls_id, user_label)
+            # user_label is None for normal YOLO threats, non-None for tactical overrides
+            for threat_item in threats:
+                box, track_id, conf, cls_id, user_label = threat_item
+                
+                # MILESTONE-2: Check if this is a tactical override
+                if user_label is not None:
+                    # Operator override - use human label with [TACTICAL] marker
+                    label = f"{user_label.upper()} [TACTICAL]"
+                    detection_type = "TACTICAL_THREAT"
+                else:
+                    # Normal YOLO threat
+                    label_name = self.yolo.names[int(cls_id)].upper()
+                    label = f"{label_name} {int(conf*100)}%"
+                    detection_type = "THREAT"
+                
                 draw_detection(box, label, (0, 0, 255), thickness=2)
                 
                 # Add to payload
                 detections_payload.append({
                     "bbox": [int(x) for x in box],
                     "confidence": round(float(conf), 3),
-                    "label": label_name,
-                    "type": "THREAT"
+                    "label": user_label if user_label else self.yolo.names[int(cls_id)].upper(),
+                    "type": detection_type,
+                    "track_id": int(track_id)  # Include track_id for frontend tagging
                 })
 
             # 2. DRAW ANOMALIES (YELLOW)
@@ -290,7 +379,8 @@ class JalDrishtiEngine:
                     "bbox": [int(x) for x in box],
                     "confidence": round(float(conf), 3),
                     "label": label_name,
-                    "type": "ANOMALY"
+                    "type": "ANOMALY",
+                    "track_id": int(track_id)  # Include track_id for frontend tagging
                 })
 
             # 3. NEUTRALS (HIDDEN)
@@ -304,6 +394,17 @@ class JalDrishtiEngine:
                 state = STATE_POTENTIAL_ANOMALY
             else:
                 state = STATE_SAFE_MODE
+            
+            # =========================================================
+            # ISSUE 2 FIX: State-Change-Only Alerts
+            # Only set emit_alert=True when state CHANGES
+            # Frontend should only update warnings when emit_alert is True
+            # =========================================================
+            state_changed = (state != self.last_state)
+            if state_changed:
+                self.last_state = state
+                logger.info(f"[Core] State changed: {state}")
+            # =========================================================
                 
             # --- Output Contract ---
             latency_ms = (time.time() - start_time) * 1000
@@ -312,7 +413,11 @@ class JalDrishtiEngine:
                 "state": state,
                 "max_confidence": round(float(max_conf), 3),
                 "detections": detections_payload,
-                "latency_ms": round(latency_ms, 2)
+                "latency_ms": round(latency_ms, 2),
+                # ISSUE 2 FIX: Only true when state changes
+                "emit_alert": state_changed,
+                # ISSUE 1 FIX: Include persistence info for debugging
+                "persistence_threshold": self.ANOMALY_PERSISTENCE_THRESHOLD
             }
             
             return response, annotated_frame

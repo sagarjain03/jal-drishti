@@ -15,6 +15,40 @@ export const SYSTEM_STATES = {
   SAFE_MODE: 'SAFE_MODE'
 };
 
+// MILESTONE-1: Fusion states from layered sensing
+export const FUSION_STATES = {
+  NORMAL: 'NORMAL',
+  SENSOR_ALERT: 'SENSOR_ALERT',
+  POTENTIAL_ANOMALY: 'POTENTIAL_ANOMALY',
+  CONFIRMED_THREAT: 'CONFIRMED_THREAT',
+  SENSOR_DEGRADED: 'SENSOR_DEGRADED'
+};
+
+// MILESTONE-1: Fusion state colors
+export const FUSION_STATE_COLORS = {
+  NORMAL: '#22C55E',           // Green - all clear
+  SENSOR_ALERT: '#3B82F6',     // Blue - sonar detection
+  POTENTIAL_ANOMALY: '#F97316', // Amber - multiple sensors
+  CONFIRMED_THREAT: '#EF4444', // Red - full confirmation
+  SENSOR_DEGRADED: '#8B5CF6'   // Purple - partial availability
+};
+
+// MILESTONE-1: Fusion state labels
+export const FUSION_STATE_LABELS = {
+  NORMAL: 'ALL CLEAR',
+  SENSOR_ALERT: 'SENSOR ALERT',
+  POTENTIAL_ANOMALY: 'POTENTIAL ANOMALY',
+  CONFIRMED_THREAT: 'CONFIRMED THREAT',
+  SENSOR_DEGRADED: 'SENSOR DEGRADED'
+};
+
+// MILESTONE-1: Sensor role definitions for documentation
+export const SENSOR_ROLES = {
+  SONAR: { name: 'Sonar', role: 'Early Suspicion', nature: 'Range & Shape-based' },
+  IR: { name: 'IR/Thermal', role: 'Mid-range Confirmation', nature: 'Heat/Silhouette' },
+  CAMERA: { name: 'Camera + AI', role: 'Final Confirmation', nature: 'Visual Certainty' }
+};
+
 // Source states - from SourceManager
 export const SOURCE_STATES = {
   IDLE: 'IDLE',

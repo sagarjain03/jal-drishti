@@ -9,6 +9,17 @@ Real-Time Simulation Pipeline – Complete Context & Intent Document.md
 ml-engine/scripts/start_ml_engine_gpu.ps1
 backend/scripts/start_backend_cpu.ps1
 System Failure Analysis & Stabilization Plan.md
+Milestone-1 Implementation Plan.md
+Milestone-2 Implementation Plan.md
+Milestone-3 Implementation Plan.md
+Milestone-4 Implementation Plan.md
+Milestone-2 & Milestone-4 Issues.md
+Part 1_ The Hybrid Approach (Theory Only).md
+MILESTONE_1_ARCHITECTURE.md
+MILESTONE_2_ARCHITECTURE.md
+MILESTONE_3_ARCHITECTURE.md
+MILESTONE_4_ARCHITECTURE.md
+
 ### Node ###
 ml-engine/venv
 backend/venv

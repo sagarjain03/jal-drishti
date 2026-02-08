@@ -1,10 +1,9 @@
-import RawFeedPanel from './components/RawFeedPanel';
 import React, { useRef, useEffect, useState } from 'react';
+import RawFeedPanel from './components/RawFeedPanel';
+
 import StatusBar from './components/StatusBar';
-import VideoPanel from './components/VideoPanel';
 import AlertPanel from './components/AlertPanel';
 import ConnectionOverlay from './components/ConnectionOverlay';
-
 import SafeModeOverlay from './components/SafeModeOverlay';
 import EventTimeline from './components/EventTimeline';
 import DetectionOverlay from './components/DetectionOverlay';
@@ -14,19 +13,16 @@ import SnapshotModal from './components/SnapshotModal';
 import LastAlertSnapshot from './components/LastAlertSnapshot';
 import InputSourceToggle from './components/InputSourceToggle';
 import ConnectedViewers from './components/ConnectedViewers';
+import RiskScoreCircle from './components/RiskScoreCircle';
+import SensorStatusPanel from './components/SensorStatusPanel';
+import OperatorActionPanel from './components/OperatorActionPanel';
+
 import useLiveStream from './hooks/useLiveStream';
-import useFakeStream from './hooks/useFakeStream';
 import { SYSTEM_STATES, CONNECTION_STATES, INPUT_SOURCES, EVENT_TYPES, SOURCE_STATES } from './constants';
 import './App.css';
 
 /**
  * TEST MODE TOGGLE
- * 
- * Set to true to use fake stream (frontend-only testing)
- * Set to false to use live stream (requires backend)
- * 
- * For TEST 1-4: Set USE_FAKE_STREAM = true
- * For TEST 5:   Set USE_FAKE_STREAM = false
  */
 const USE_FAKE_STREAM = false;
 
@@ -42,66 +38,39 @@ const formatUptime = (ms) => {
 };
 
 /**
- * App Component (Enhanced - Phase 3)
- * 
- * Main dashboard for Jal-Drishti.
- * Features:
- * - Dark defence-theme UI
- * - Safe Mode visual overlay
- * - Event timeline panel
- * - Enhanced status bar with color coding
- * - Detection visual polish
- * - Click-to-maximize video panels with expand icons
- * - Snapshot capture functionality
- * - System uptime counter (Smart Persistence)
- * - Last alert snapshot panel
- * - Analytical Alert Panel
- * 
- * IMPORTANT: Backend is unchanged. All enhancements are frontend-only.
+ * App Component (Phase 4 Redesign)
+ * 3-Column Layout: Left (Controls), Center (Monitoring), Right (History/Admin)
  */
 function App() {
   const [inputSource, setInputSource] = useState('video');
-  // Phase-3: Track backend source state
   const [sourceState, setSourceState] = useState(SOURCE_STATES.IDLE);
-
-  // Maximize panel state: null, 'raw', or 'enhanced'
   const [maximizedPanel, setMaximizedPanel] = useState(null);
-
-  // Recovery flash animation state
   const [showRecoveryFlash, setShowRecoveryFlash] = useState(false);
-
-  // Previous safe mode state for detecting transitions
   const prevSafeModeRef = useRef(false);
 
-  // Metrics history for graphs (last 60 data points)
+  // Metrics history
   const [fpsHistory, setFpsHistory] = useState([]);
   const [latencyHistory, setLatencyHistory] = useState([]);
   const [safeModeStartTime, setSafeModeStartTime] = useState(null);
 
-  // Phase-3: Smart System Uptime
-  // Reset on server restart (detected via build timestamp), pause on tab close.
+  // Smart Uptime
   const [uptime, setUptime] = useState('00:00:00');
 
   useEffect(() => {
-    // 1. Check for server restart
     const currentBuildTime = __BUILD_TIMESTAMP__;
     const storedBuildTime = localStorage.getItem('jalDrishtiBuildTimestamp');
-
     let totalActiveTime = 0;
 
     if (!storedBuildTime || parseInt(storedBuildTime) !== currentBuildTime) {
-      // Server restarted or first run -> RESET
       localStorage.setItem('jalDrishtiBuildTimestamp', currentBuildTime.toString());
       localStorage.setItem('jalDrishtiTotalActiveTime', '0');
     } else {
-      // Same session -> RESUME
       const savedTime = localStorage.getItem('jalDrishtiTotalActiveTime');
       totalActiveTime = savedTime ? parseInt(savedTime, 10) : 0;
     }
 
-    // 2. Start Interval
     const interval = setInterval(() => {
-      totalActiveTime += 1000; // increment by 1 second
+      totalActiveTime += 1000;
       setUptime(formatUptime(totalActiveTime));
       localStorage.setItem('jalDrishtiTotalActiveTime', totalActiveTime.toString());
     }, 1000);
@@ -109,7 +78,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Phase-3: Snapshot modal state
+  // Snapshot modal
   const [snapshotModal, setSnapshotModal] = useState({
     isOpen: false,
     imageData: null,
@@ -117,41 +86,38 @@ function App() {
     alertType: ''
   });
 
-  // Phase-3: Last alert snapshot
   const [lastAlertSnapshot, setLastAlertSnapshot] = useState(null);
 
-  // Only use live stream when not in fake/test mode
+  // Live Stream Hook
   const liveStreamData = useLiveStream(!USE_FAKE_STREAM);
-
-  // Destructure with defaults for when hook returns null/disconnected state
   const {
     frame = null,
-
     fps = 0,
-    connectionStatus = CONNECTION_STATES.CONNECTED, // When fake, pretend connected
+    connectionStatus = CONNECTION_STATES.CONNECTED,
     reconnectAttempt = 0,
     lastValidFrame = null,
     manualReconnect = () => { },
-    // New enhanced exports
     systemStatus = { inSafeMode: false, message: null, cause: null },
     events = [],
-    addEvent = () => { }
+    addEvent = () => { },
+    wsRef = { current: null },
+    // Mock risk values for circle
+    riskLevel = 0 // Assuming hook might provide this later, or we derive it
   } = liveStreamData;
 
-  // Use ref for previous state tracking (not useState - avoids re-renders)
   const prevStateRef = useRef(SYSTEM_STATES.SAFE_MODE);
 
-  // Determine which frame to display (current or last valid on disconnect)
+  // Determine display frame
   const displayFrame = frame || lastValidFrame || {
     state: SYSTEM_STATES.SAFE_MODE,
     max_confidence: 0,
     detections: [],
-    visibility_score: 0,
     image_data: null,
-    system: { fps: null, latency_ms: null }
+    system: { fps: null, latency_ms: null },
+    risk_score: 0
   };
 
-  // Track state changes and add to event timeline
+  // Track state changes
   useEffect(() => {
     const currentState = displayFrame.state;
     if (prevStateRef.current !== currentState && addEvent) {
@@ -160,13 +126,11 @@ function App() {
         [SYSTEM_STATES.POTENTIAL_ANOMALY]: 'Potential Anomaly Detected',
         [SYSTEM_STATES.SAFE_MODE]: 'System Normal'
       };
-
       const severity = currentState === SYSTEM_STATES.CONFIRMED_THREAT ? 'danger' :
         currentState === SYSTEM_STATES.POTENTIAL_ANOMALY ? 'warning' : 'success';
 
       addEvent(EVENT_TYPES.STATE_CHANGE, stateLabels[currentState] || 'State Changed', severity);
 
-      // Phase-3: Auto-capture snapshot on alert
       if (currentState === SYSTEM_STATES.CONFIRMED_THREAT || currentState === SYSTEM_STATES.POTENTIAL_ANOMALY) {
         if (displayFrame.image_data) {
           setLastAlertSnapshot({
@@ -176,62 +140,34 @@ function App() {
           });
         }
       }
-
       prevStateRef.current = currentState;
     }
   }, [displayFrame.state, displayFrame.image_data, addEvent]);
 
-  // Add detection events when new detections appear
-  useEffect(() => {
-    if (displayFrame.detections && displayFrame.detections.length > 0 && addEvent) {
-      const detectionCount = displayFrame.detections.length;
-      // Only log significant detections (high confidence)
-      const highConfidence = displayFrame.detections.filter(d => d.confidence > 0.5);
-      if (highConfidence.length > 0) {
-        // Throttle: don't add detection events too frequently
-        // (handled by the hook's deduplication if needed)
-      }
-    }
-  }, [displayFrame.detections, addEvent]);
-
-  // Track safe mode transitions for recovery flash effect
+  // Flash effect
   useEffect(() => {
     const wasInSafeMode = prevSafeModeRef.current;
     const isInSafeMode = systemStatus.inSafeMode;
-
-    // Detect recovery: was in safe mode, now not
     if (wasInSafeMode && !isInSafeMode) {
       setShowRecoveryFlash(true);
       setSafeModeStartTime(null);
-      const timer = setTimeout(() => setShowRecoveryFlash(false), 1000);
-      return () => clearTimeout(timer);
+      setTimeout(() => setShowRecoveryFlash(false), 1000);
     }
-
-    // Detect entering safe mode
     if (!wasInSafeMode && isInSafeMode) {
       setSafeModeStartTime(Date.now());
     }
-
     prevSafeModeRef.current = isInSafeMode;
   }, [systemStatus.inSafeMode]);
 
-  // Update metrics history when new frame data arrives
+  // Metrics history
   useEffect(() => {
-    // Update FPS history
-    if (fps !== undefined) {
-      setFpsHistory(prev => [...prev.slice(-59), fps]);
-    }
-
-    // Update latency history
+    if (fps !== undefined) setFpsHistory(prev => [...prev.slice(-59), fps]);
     const latency = displayFrame.system?.latency_ms;
-    if (latency !== null && latency !== undefined) {
-      setLatencyHistory(prev => [...prev.slice(-59), latency]);
-    }
+    if (latency !== null && latency !== undefined) setLatencyHistory(prev => [...prev.slice(-59), latency]);
   }, [fps, displayFrame.system?.latency_ms]);
 
-  // Phase-3: Handle snapshot capture
   const handleCaptureSnapshot = (e) => {
-    e.stopPropagation(); // Prevent panel click
+    e?.stopPropagation();
     if (displayFrame.image_data) {
       setSnapshotModal({
         isOpen: true,
@@ -242,32 +178,11 @@ function App() {
     }
   };
 
-  const closeSnapshotModal = () => {
-    setSnapshotModal({
-      isOpen: false,
-      imageData: null,
-      timestamp: '',
-      alertType: ''
-    });
-  };
-
-  // Handle Input Source Toggle
-  const handleSourceToggle = (source) => {
-    // In a real app, this would switch backend streams
-    // For now, we update frontend state to show the toggle works
-    setInputSource(source === 'camera' ? 'camera' : INPUT_SOURCES.DUMMY_VIDEO);
-  };
-
+  // RENDER: 3-COLUMN LAYOUT (Phase-4)
   return (
     <div className={`app-container ${systemStatus.inSafeMode ? 'safe-mode-active' : ''} ${showRecoveryFlash ? 'recovery-flash' : ''}`}>
-      {/* Test Mode Indicator */}
-      {USE_FAKE_STREAM && (
-        <div className="test-mode-banner">
-          🧪 TEST MODE: Using Fake Stream (state cycles every ~10s)
-        </div>
-      )}
 
-      {/* Enhanced Status Bar with Input Source and Uptime */}
+      {/* Status Bar */}
       <StatusBar
         systemState={displayFrame.state}
         maxConfidence={displayFrame.max_confidence}
@@ -279,24 +194,26 @@ function App() {
         uptime={uptime}
       />
 
-      <main className="main-content">
-        {/* Left Sidebar */}
-        <div className="left-sidebar">
-          <EventTimeline events={events} />
-          <MetricsPanel
-            fpsHistory={fpsHistory}
-            latencyHistory={latencyHistory}
-            inSafeMode={systemStatus.inSafeMode}
-            safeModeStartTime={safeModeStartTime}
-            currentFps={fps}
-            latency={displayFrame.system?.latency_ms}
-            connectionStatus={connectionStatus}
-            systemState={displayFrame.state}
-          />
-          {/* Phase-3: Last Alert Snapshot Panel */}
-          <LastAlertSnapshot snapshot={lastAlertSnapshot} />
+      {/* Main Content Areas */}
+      <div className="main-content">
 
-          {/* Phase-3: Input Source Toggle (Fills empty space) */}
+        {/* --- COLUMN 1: LEFT SIDEBAR (Controls) --- */}
+        <div className="left-sidebar">
+          {/* Phase-3: Connected Viewers Panel (Moved from Right/Bottom) */}
+          {/* Wait, user said "remove scroll completely create a right sidepanel too and add remaining components there"
+               Left: Input Source, Last Alert Snapshot
+               Right: Viewers, Timeline
+           */}
+
+          {/* Sensor Status (Restored) */}
+          <SensorStatusPanel
+            sensors={displayFrame.sensors}
+            fusionState={displayFrame.fusion_state}
+            fusionMessage={displayFrame.fusion_message}
+            timelineMessages={displayFrame.timeline_messages}
+          />
+
+          {/* Input Source Toggle */}
           <InputSourceToggle
             currentSource={inputSource}
             sourceState={sourceState}
@@ -304,115 +221,136 @@ function App() {
               setInputSource(source);
               if (state) setSourceState(state);
             }}
-            onReset={() => {
-              // Reset frame counters on source switch
-              console.log('[App] Source switched - counters reset');
-            }}
+            wsConnection={wsRef.current}
+            onReset={() => console.log('[App] Source switched')}
           />
 
-          {/* Phase-3: Connected Viewers Panel (Operator only) */}
-          <ConnectedViewers isOperator={true} />
+          {/* Last Alert Snapshot */}
+          <LastAlertSnapshot snapshot={lastAlertSnapshot} />
         </div>
 
-        {/* Real-time RAW Feed - Click to maximize */}
-        <div
-          className="video-panel clickable"
-          onClick={() => setMaximizedPanel('raw')}
-        >
-          <div className="video-header">
-            <h3 className="video-title">Raw Feed (Sensor)</h3>
-            <div className="video-header-controls">
-              <span className="badge-live" style={{ background: '#333' }}>RAW</span>
-              <button
-                className="expand-btn"
-                onClick={(e) => { e.stopPropagation(); setMaximizedPanel('raw'); }}
-                title="Expand"
-              >⛶</button>
+        {/* --- COLUMN 2: CENTER DASHBOARD (2x2 Grid) --- */}
+        <div className="center-dashboard">
+
+          {/* TOP ROW: VIDEOS */}
+          <div className="video-grid-row">
+            {/* Raw Feed Panel */}
+            <div
+              className="video-panel clickable"
+              onClick={() => setMaximizedPanel('raw')}
+            >
+              <div className="video-header">
+                <h3 className="video-title">Raw Feed (Sensor)</h3>
+                <div className="video-header-controls">
+                  <span className="badge-live" style={{ background: '#333' }}>RAW</span>
+                  <button className="expand-btn" title="Expand">⛶</button>
+                </div>
+              </div>
+              <div className="video-content">
+                <RawFeedPanel />
+                <SafeModeOverlay
+                  isActive={systemStatus.inSafeMode}
+                  message={systemStatus.message}
+                  cause={systemStatus.cause}
+                />
+              </div>
+            </div>
+
+            {/* Enhanced Feed Panel */}
+            <div
+              className="video-panel clickable"
+              onClick={() => setMaximizedPanel('enhanced')}
+            >
+              <div className="video-header">
+                <h3 className="video-title">Enhanced Feed</h3>
+                <div className="video-header-controls">
+                  <span className="badge-live">AI ENHANCED</span>
+                  <button className="capture-btn" onClick={handleCaptureSnapshot} title="Capture">📸</button>
+                  <button className="expand-btn" title="Expand">⛶</button>
+                </div>
+              </div>
+              <div className="video-content">
+                <img
+                  src={displayFrame.image_data || "https://placehold.co/640x480/0A0A0A/737373?text=Awaiting+Signal"}
+                  alt="Enhanced Feed"
+                  className="video-feed"
+                />
+                {displayFrame.detections && (
+                  <DetectionOverlay
+                    detections={displayFrame.detections}
+                    systemState={displayFrame.state}
+                    width={640}
+                    height={480}
+                  />
+                )}
+                <SafeModeOverlay
+                  isActive={systemStatus.inSafeMode}
+                  message={systemStatus.message}
+                  cause={systemStatus.cause}
+                />
+              </div>
             </div>
           </div>
-          <div className="video-content">
-            <RawFeedPanel />
-            <div className="maximize-hint">Click to expand</div>
 
-            {/* Safe Mode Overlay on Raw Feed */}
-            <SafeModeOverlay
-              isActive={systemStatus.inSafeMode}
-              message={systemStatus.message}
-              cause={systemStatus.cause}
-            />
-          </div>
-        </div>
-
-        {/* Enhanced Video Panel - Click to maximize */}
-        <div
-          className="video-panel clickable"
-          onClick={() => setMaximizedPanel('enhanced')}
-        >
-          <div className="video-header">
-            <h3 className="video-title">Enhanced Feed</h3>
-            <div className="video-header-controls">
-              <span className="badge-live">AI ENHANCED</span>
-              {/* Phase-3: Snapshot Capture Button */}
-              <button
-                className="capture-btn"
-                onClick={handleCaptureSnapshot}
-                title="Capture Snapshot"
-              >
-                📸 Capture
-              </button>
-              <button
-                className="expand-btn"
-                onClick={(e) => { e.stopPropagation(); setMaximizedPanel('enhanced'); }}
-                title="Expand"
-              >⛶</button>
-            </div>
-          </div>
-          <div className="video-content">
-            <img
-              src={displayFrame.image_data || "https://placehold.co/640x480/0A0A0A/737373?text=Awaiting+Signal"}
-              alt="Enhanced Feed"
-              className="video-feed"
-            />
-            <div className="maximize-hint">Click to expand</div>
-
-            {/* Detection Overlay with enhanced visuals */}
-            {displayFrame.detections && (
-              <DetectionOverlay
+          {/* BOTTOM ROW: LOGS & METRICS */}
+          <div className="data-grid-row">
+            <div className="alert-panel-wrapper">
+              <AlertPanel
+                currentState={displayFrame.state}
                 detections={displayFrame.detections}
-                systemState={displayFrame.state}
-                width={640}
-                height={480}
+                maxConfidence={displayFrame.max_confidence}
+                addEvent={addEvent}
               />
-            )}
+            </div>
+            <div className="metrics-panel-wrapper">
+              <MetricsPanel
+                fpsHistory={fpsHistory}
+                latencyHistory={latencyHistory}
+                inSafeMode={systemStatus.inSafeMode}
+                safeModeStartTime={safeModeStartTime}
+                currentFps={fps}
+                latency={displayFrame.system?.latency_ms}
+                connectionStatus={connectionStatus}
+                systemState={displayFrame.state}
+              />
+            </div>
+          </div>
 
-            {/* Safe Mode Overlay on Enhanced Feed */}
-            <SafeModeOverlay
-              isActive={systemStatus.inSafeMode}
-              message={systemStatus.message}
-              cause={systemStatus.cause}
+          {/* CENTER OVERLAY: RISK SCORE */}
+          <div className="center-overlay">
+            <RiskScoreCircle
+              systemState={displayFrame.state}
+              confidence={displayFrame.max_confidence || 0}
+              isSafeMode={systemStatus.inSafeMode}
             />
+          </div>
+
+        </div>
+
+        {/* --- COLUMN 3: RIGHT SIDEBAR --- */}
+        <div className="right-sidebar">
+          <ConnectedViewers isOperator={true} />
+
+          {/* Operator Actions (Restored) */}
+          <OperatorActionPanel
+            threatPriority={displayFrame.threat_priority}
+            signature={displayFrame.signature}
+            riskScore={displayFrame.risk_score}
+            fusionState={displayFrame.fusion_state}
+            seenBefore={displayFrame.seen_before}
+            occurrenceCount={displayFrame.occurrence_count}
+            explainability={displayFrame.explainability}
+            onDecision={(decision) => console.log('[M4] Operator Decision:', decision)}
+          />
+
+          <div className="timeline-container" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <EventTimeline events={events} />
           </div>
         </div>
 
-        {/* Alert Panel - Moved inside main-content to span columns */}
-        <div className="alert-panel-wrapper">
-          <AlertPanel
-            currentState={displayFrame.state}
-            detections={displayFrame.detections}
-            maxConfidence={displayFrame.max_confidence}
-            addEvent={addEvent}
-          />
-        </div>
+      </div>
 
-        {/* Connection Overlay - non-blocking, canvas stays mounted */}
-        <ConnectionOverlay
-          connectionStatus={connectionStatus}
-          reconnectAttempt={reconnectAttempt}
-          onRetry={manualReconnect}
-        />
-      </main>
-
-      {/* Maximized Panel Modal - Raw Feed */}
+      {/* Modals */}
       <MaximizedPanel
         isOpen={maximizedPanel === 'raw'}
         onClose={() => setMaximizedPanel(null)}
@@ -427,7 +365,6 @@ function App() {
         />
       </MaximizedPanel>
 
-      {/* Maximized Panel Modal - Enhanced Feed */}
       <MaximizedPanel
         isOpen={maximizedPanel === 'enhanced'}
         onClose={() => setMaximizedPanel(null)}
@@ -454,17 +391,21 @@ function App() {
         />
       </MaximizedPanel>
 
-      {/* Phase-3: Snapshot Modal */}
       <SnapshotModal
         isOpen={snapshotModal.isOpen}
-        onClose={closeSnapshotModal}
+        onClose={() => setSnapshotModal({ isOpen: false, imageData: null, type: null })}
         imageData={snapshotModal.imageData}
         timestamp={snapshotModal.timestamp}
         alertType={snapshotModal.alertType}
+      />
+
+      <ConnectionOverlay
+        connectionStatus={connectionStatus}
+        reconnectAttempt={reconnectAttempt}
+        onRetry={manualReconnect}
       />
     </div>
   );
 }
 
 export default App;
-

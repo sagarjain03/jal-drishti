@@ -168,12 +168,7 @@ const StatusBar = ({
                 </div>
 
                 {/* ML FPS (backend, if available) */}
-                {mlFps !== null && (
-                    <div className="metric-group right-align">
-                        <span className="metric-label">ML FPS</span>
-                        <span className="metric-value value-cyan">{mlFps.toFixed(1)}</span>
-                    </div>
-                )}
+                
 
                 {/* Input Source Indicator */}
                 <div className="input-source">

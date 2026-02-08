@@ -14,6 +14,11 @@ import queue
 from typing import Optional, Callable, Generator
 import logging
 
+# MILESTONE-1: Sensor Fusion Integration
+from app.services.sensor_fusion import get_sensor_fusion, FusionState
+# MILESTONE-4: Decision Support Integration
+from app.services.decision_support import get_decision_support
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,7 +84,11 @@ class FrameScheduler:
         # Main loop thread
         self._main_thread = None
         
+        # MILESTONE-1: Sensor Fusion Engine
+        self.sensor_fusion = get_sensor_fusion()
+        
         logger.info("[Scheduler] SINGLETON: Initialized (target FPS=%d)", target_fps)
+        logger.info("[Scheduler] Sensor fusion enabled")
     
     def configure(self, ml_module=None, result_callback=None, raw_callback=None):
         """Configure callbacks (can be called after init)."""
@@ -211,20 +220,64 @@ class FrameScheduler:
                     # Emit enhanced frame at scheduler pace
                     if self.result_callback and self.last_ml_result:
                         try:
+                            # MILESTONE-1: Get camera confidence for fusion
+                            camera_confidence = self.last_ml_result.get("max_confidence", 0.0)
+                            ml_available = self.last_ml_result.get("ml_available", True)
+                            
+                            # Process through sensor fusion
+                            fusion_data = self.sensor_fusion.process_frame(
+                                frame_id=frame_id,
+                                camera_confidence=camera_confidence,
+                                ml_available=ml_available
+                            )
+                            
+                            # Determine system state from fusion (not camera alone)
+                            fusion_state_str = fusion_data.fusion_state.value
+                            
                             enhanced_payload = {
                                 "frame_id": frame_id,
                                 "timestamp": current_time,
                                 "detections": self.last_ml_result.get("detections", []),
                                 "max_confidence": self.last_ml_result.get("max_confidence", 0.0),
-                                "state": self.last_ml_result.get("state", "NORMAL"),
+                                # MILESTONE-1: Use fusion state instead of camera-only state
+                                "state": fusion_state_str,
                                 "image_data": self.last_ml_result.get("image_data"),
                                 "system": {
                                     "fps": self.target_fps,
                                     "latency_ms": self.last_ml_result.get("ml_latency_ms", 0.0),
                                     "ml_fps": self.last_ml_result.get("ml_fps", 0.0),
-                                    "ml_available": True
+                                    "ml_available": ml_available
                                 },
-                                "is_cached": not self.ml_ready.is_set()
+                                "is_cached": not self.ml_ready.is_set(),
+                                # MILESTONE-1: Sensor data for frontend
+                                "sensors": {
+                                    "sonar": {
+                                        "detected": fusion_data.sonar.detected,
+                                        "distance_m": fusion_data.sonar.distance_m,
+                                        "confidence": fusion_data.sonar.confidence
+                                    },
+                                    "ir": {
+                                        "detected": fusion_data.ir.detected,
+                                        "confidence": fusion_data.ir.confidence
+                                    },
+                                    "camera": {
+                                        "detected": fusion_data.camera.detected,
+                                        "confidence": fusion_data.camera.confidence,
+                                        "ml_available": fusion_data.camera.ml_available
+                                    }
+                                },
+                                "fusion_state": fusion_state_str,
+                                "fusion_message": fusion_data.fusion_message,
+                                "timeline_messages": fusion_data.timeline_messages,
+                                # MILESTONE-3: Risk score and contributions
+                                "risk_score": fusion_data.risk_score,
+                                "sensor_contributions": fusion_data.sensor_contributions,
+                                # MILESTONE-4: Decision support data
+                                "threat_priority": fusion_data.threat_priority,
+                                "signature": fusion_data.signature,
+                                "explainability": fusion_data.explainability,
+                                "seen_before": fusion_data.seen_before,
+                                "occurrence_count": fusion_data.occurrence_count
                             }
                             
                             self.result_callback({

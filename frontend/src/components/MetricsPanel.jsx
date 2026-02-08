@@ -72,6 +72,7 @@ const MetricsPanel = ({
         return 'awareness-low';
     };
 
+
     return (
         <div className="metrics-panel">
             <div className="metrics-panel-header">
@@ -82,7 +83,7 @@ const MetricsPanel = ({
                 {/* FPS Graph */}
                 <MetricsGraph
                     data={fpsHistory}
-                    width={240}
+                    width={400}
                     height={55}
                     color="#22C55E"
                     label="FPS"
@@ -95,7 +96,7 @@ const MetricsPanel = ({
                 {/* Latency Graph */}
                 <MetricsGraph
                     data={latencyHistory}
-                    width={240}
+                    width={400}
                     height={55}
                     color="#00d4ff"
                     label="Latency"
@@ -128,6 +129,7 @@ const MetricsPanel = ({
                 </div>
             </div>
         </div>
+
     );
 };
 

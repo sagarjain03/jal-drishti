@@ -4,7 +4,7 @@ os.environ["NO_PROXY"] = "localhost,127.0.0.1,0.0.0.0"
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.api import stream, ws_server, phone_upload, source_api, viewer_api
+from app.api import stream, ws_server, phone_upload, source_api, viewer_api, operator_api
 from app.auth import auth_router
 
 # Core Modules
@@ -50,6 +50,8 @@ app.include_router(ws_server.router, prefix="/ws", tags=["websocket"])
 app.include_router(phone_upload.router, prefix="/ws", tags=["phone"])
 app.include_router(source_api.router, tags=["source"])
 app.include_router(viewer_api.router, tags=["viewers"])
+# MILESTONE-2 & 4: Operator API
+app.include_router(operator_api.router)
 
 # --- RAW FEED WEBSOCKET ---
 @app.websocket("/ws/raw_feed")
