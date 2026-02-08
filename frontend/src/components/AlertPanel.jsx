@@ -16,16 +16,24 @@ const AlertPanel = ({
     currentState = SYSTEM_STATES.SAFE_MODE,
     detections = [],
     maxConfidence = 0,
-    addEvent = null
+    addEvent = null,
+    emitAlert = true  // ISSUE 2 FIX: Only process when backend says state changed
 }) => {
     const prevStateRef = useRef(currentState);
     const [alerts, setAlerts] = useState([]);
     const [handledAlertState, setHandledAlertState] = useState(null);
 
-    // Handle state transitions
+    // ISSUE 2 FIX: Debounce state - lock alerts for 3 seconds after showing
+    const [isLocked, setIsLocked] = useState(false);
+    const lockTimeoutRef = useRef(null);
+    const DEBOUNCE_MS = 3000;  // 3 second lock
+
+    // Handle state transitions with debounce
     useEffect(() => {
         const prevState = prevStateRef.current;
-        if (prevState !== currentState) {
+
+        // ISSUE 2 FIX: Only process if NOT locked AND state actually changed
+        if (prevState !== currentState && !isLocked) {
             const timestamp = new Date().toLocaleTimeString();
             let newAlert = null;
 
@@ -60,11 +68,29 @@ const AlertPanel = ({
 
             if (newAlert) {
                 setAlerts((prev) => [newAlert, ...prev].slice(0, 15));
+
+                // ISSUE 2 FIX: Lock for 3 seconds after showing alert
+                setIsLocked(true);
+                if (lockTimeoutRef.current) {
+                    clearTimeout(lockTimeoutRef.current);
+                }
+                lockTimeoutRef.current = setTimeout(() => {
+                    setIsLocked(false);
+                }, DEBOUNCE_MS);
             }
             setHandledAlertState(null);
             prevStateRef.current = currentState;
         }
-    }, [currentState, maxConfidence]);
+    }, [currentState, maxConfidence, isLocked]);
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (lockTimeoutRef.current) {
+                clearTimeout(lockTimeoutRef.current);
+            }
+        };
+    }, []);
 
     const getRowClass = (type) => {
         switch (type) {

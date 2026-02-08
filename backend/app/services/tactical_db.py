@@ -75,27 +75,44 @@ class TacticalDB:
     
     IMPORTANT: This class provides the INFRASTRUCTURE.
     The ML engineer must call get_override() in the YOLO inference loop.
+    
+    CRITICAL: Uses ABSOLUTE SHARED path so backend and ML engine use SAME database.
     """
     
-    def __init__(self, db_path: str = "mission_data/tactical.db"):
+    # Shared absolute path for database - ensures backend and ML engine use SAME file
+    # This must be accessible from both processes
+    SHARED_DB_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "mission_data", "tactical.db")
+    )
+    
+    # Fixed mission ID for live override sync - both processes use same ID
+    # This avoids mission ID mismatch between backend and ML engine
+    SHARED_MISSION_ID = "live_mission"
+    
+    def __init__(self, db_path: str = None):
         """
         Initialize the tactical database.
         
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file (defaults to shared absolute path)
         """
         self._lock = Lock()
         
+        # Use shared absolute path to ensure backend and ML engine share same DB
+        if db_path is None:
+            db_path = self.SHARED_DB_PATH
+        
         # Ensure directory exists
         os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True)
-        self.db_path = db_path
+        self.db_path = os.path.abspath(db_path)
         self._init_db()
         
-        # Current mission ID (set at mission start)
-        self.current_mission_id = f"mission_{int(time.time())}"
+        # Use shared mission ID for live sync between backend and ML engine
+        # This ensures overrides added by backend are visible to ML engine query
+        self.current_mission_id = self.SHARED_MISSION_ID
         
-        logger.info(f"[TacticalDB] Initialized at {db_path}")
-        logger.info(f"[TacticalDB] Current mission: {self.current_mission_id}")
+        logger.info(f"[TacticalDB] Initialized at SHARED path: {self.db_path}")
+        logger.info(f"[TacticalDB] Using SHARED mission ID: {self.current_mission_id}")
     
     def _get_connection(self) -> sqlite3.Connection:
         """Get a database connection (thread-safe)."""
@@ -227,6 +244,8 @@ class TacticalDB:
         
         Latency: ~0.05ms (600x faster than YOLO inference)
         
+        CRITICAL: Executes FRESH SQL query every call - no caching!
+        
         Args:
             track_id: YOLO track ID
             
@@ -246,7 +265,10 @@ class TacticalDB:
                 result = cursor.fetchone()
                 conn.close()
                 
-                return result['label'] if result else None
+                if result:
+                    logger.debug(f"[TacticalDB] OVERRIDE FOUND: track_id={track_id} -> '{result['label']}'")
+                    return result['label']
+                return None
                 
             except Exception as e:
                 logger.error(f"[TacticalDB] Error getting override: {e}")

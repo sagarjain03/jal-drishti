@@ -41,30 +41,77 @@ const DetectionOverlay = ({
         // Clear previous frame
         ctx.clearRect(0, 0, width, height);
 
-        // Determine styling based on system state
-        const isSafeMode = systemState === SYSTEM_STATES.SAFE_MODE;
-        const isConfirmedThreat = systemState === SYSTEM_STATES.CONFIRMED_THREAT;
-        const color = STATE_COLORS[systemState] || STATE_COLORS.SAFE_MODE;
-        const lineWidth = isSafeMode ? 1 : (isConfirmedThreat ? 4 : 3);
-        const globalAlpha = isSafeMode ? 0.5 : 1.0;
+        // TASK 5: Debug logging - log payload from backend
+        if (detections.length > 0) {
+            console.log("[DetectionOverlay] Detections from backend:", detections);
+        }
 
         ctx.save();
-        ctx.globalAlpha = globalAlpha;
 
-        detections.forEach((det, index) => {
-            const { bbox, label, confidence } = det;
+        // TASK 3: Use track_id for keying (Map for deduplication)
+        const detectionMap = new Map();
+        detections.forEach(det => {
+            const key = det.track_id ?? det.bbox.join(',');  // Use track_id if available
+            detectionMap.set(key, det);
+        });
+
+        // Render each detection
+        detectionMap.forEach((det, key) => {
+            const { bbox, label, confidence, type, track_id } = det;
+
+            // TASK 2: NEVER filter TACTICAL_THREAT regardless of confidence
+            // TACTICAL_THREAT must ALWAYS be rendered
+            const isTactical = type === 'TACTICAL_THREAT';
+            const isThreat = type === 'THREAT' || isTactical;
+            const isAnomaly = type === 'ANOMALY';
 
             // Support both [x, y, w, h] and [x1, y1, x2, y2] formats
             let x, y, w, h;
             if (bbox.length === 4) {
-                [x, y, w, h] = bbox;
+                // If w/h are larger than x/y, assume [x1, y1, x2, y2]
+                if (bbox[2] > bbox[0] * 2) {
+                    x = bbox[0];
+                    y = bbox[1];
+                    w = bbox[2] - bbox[0];
+                    h = bbox[3] - bbox[1];
+                } else {
+                    [x, y, w, h] = bbox;
+                }
             }
 
-            // Draw glow effect for non-safe mode
-            if (!isSafeMode) {
+            // TASK 1: Determine color based on DETECTION TYPE, not just system state
+            // TACTICAL_THREAT = always RED
+            // THREAT = RED
+            // ANOMALY = YELLOW
+            let color, lineWidth, glowBlur;
+
+            if (isTactical) {
+                // TACTICAL OVERRIDE - Always RED, thicker, more glow
+                color = '#FF0000';  // Pure red
+                lineWidth = 4;
+                glowBlur = 20;
+            } else if (isThreat) {
+                // Regular threat - Red
+                color = STATE_COLORS.CONFIRMED_THREAT || '#EF4444';
+                lineWidth = 3;
+                glowBlur = 15;
+            } else if (isAnomaly) {
+                // Anomaly - Yellow
+                color = STATE_COLORS.POTENTIAL_ANOMALY || '#F97316';
+                lineWidth = 3;
+                glowBlur = 12;
+            } else {
+                // Safe mode / neutral - Gray
+                color = STATE_COLORS.SAFE_MODE || '#888888';
+                lineWidth = 1;
+                glowBlur = 0;
+            }
+
+            // Draw glow effect for threats and tactical
+            if (isThreat || isTactical || isAnomaly) {
                 ctx.save();
                 ctx.shadowColor = color;
-                ctx.shadowBlur = isConfirmedThreat ? 15 : 10;
+                ctx.shadowBlur = glowBlur;
                 ctx.strokeStyle = color;
                 ctx.lineWidth = lineWidth;
                 ctx.strokeRect(x, y, w, h);
@@ -76,8 +123,8 @@ const DetectionOverlay = ({
             ctx.lineWidth = lineWidth;
             ctx.strokeRect(x, y, w, h);
 
-            // Corner accents for enhanced look
-            if (!isSafeMode) {
+            // Corner accents for threats and tactical
+            if (isThreat || isTactical) {
                 const cornerLength = 12;
                 ctx.lineWidth = lineWidth + 1;
 
@@ -110,22 +157,28 @@ const DetectionOverlay = ({
                 ctx.stroke();
             }
 
-            // Prepare label text
-            let displayLabel = label || 'anomaly';
-            if (isSafeMode) {
-                displayLabel += ' (Unreliable)';
+            // TASK 1: Trust backend label EXACTLY for TACTICAL_THREAT
+            // Do NOT recompute label, use exactly what backend sends
+            let displayLabel;
+            if (isTactical) {
+                // Backend already sends "LABEL [TACTICAL]" format
+                // Trust it exactly - DO NOT modify
+                displayLabel = label;
+            } else {
+                displayLabel = label || 'UNKNOWN';
             }
+
             const confidenceText = `${(confidence * 100).toFixed(0)}%`;
 
             // Draw label background with better styling
-            ctx.font = isSafeMode ? 'bold 11px Inter, sans-serif' : 'bold 13px Inter, sans-serif';
-            const labelText = `${displayLabel}`;
+            ctx.font = 'bold 13px Inter, sans-serif';
+            const labelText = displayLabel;
             const textWidth = ctx.measureText(labelText).width;
-            const labelHeight = isSafeMode ? 22 : 28;
+            const labelHeight = 28;
             const labelY = y - labelHeight - 4;
 
-            // Background with rounded corners effect
-            ctx.fillStyle = isSafeMode ? 'rgba(0, 0, 0, 0.6)' : color;
+            // Background color matches detection type
+            ctx.fillStyle = color;
 
             // Draw label background
             const bgX = x;
@@ -134,16 +187,14 @@ const DetectionOverlay = ({
             const bgHeight = labelHeight;
 
             ctx.save();
-            if (!isSafeMode) {
-                ctx.shadowColor = color;
-                ctx.shadowBlur = 8;
-            }
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 8;
             ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
             ctx.restore();
 
             // Draw label text
-            ctx.fillStyle = isSafeMode ? '#ffffff' : (isConfirmedThreat ? '#ffffff' : '#000000');
-            ctx.fillText(labelText, bgX + 6, bgY + (isSafeMode ? 14 : 17));
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(labelText, bgX + 6, bgY + 17);
 
             // Draw confidence bar (Green → Red gradient based on confidence)
             const barWidth = 40;
@@ -163,8 +214,15 @@ const DetectionOverlay = ({
 
             // Confidence percentage text
             ctx.font = 'bold 10px JetBrains Mono, monospace';
-            ctx.fillStyle = isSafeMode ? '#aaaaaa' : '#ffffff';
+            ctx.fillStyle = '#ffffff';
             ctx.fillText(confidenceText, barX + barWidth + 4, barY + 4);
+
+            // TACTICAL marker - add extra visual indicator
+            if (isTactical) {
+                ctx.font = 'bold 10px JetBrains Mono, monospace';
+                ctx.fillStyle = '#00FF00';  // Green "operator" indicator
+                ctx.fillText('👤 OPERATOR', bgX + bgWidth + 8, bgY + 17);
+            }
         });
 
         ctx.restore();

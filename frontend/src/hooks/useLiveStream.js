@@ -267,7 +267,11 @@ const useLiveStream = (enabled = true) => {
                         signature: data.signature || '',
                         explainability: data.explainability || [],
                         seen_before: data.seen_before || false,
-                        occurrence_count: data.occurrence_count || 0
+                        occurrence_count: data.occurrence_count || 0,
+                        // ISSUE 2 FIX: Only update alerts when backend says state changed
+                        emit_alert: data.emit_alert || false,
+                        // ISSUE 1 FIX: Persistence threshold info
+                        persistence_threshold: data.persistence_threshold || 15
                     };
 
                     // DECOUPLING: Store in ref, don't call setFrame directly
