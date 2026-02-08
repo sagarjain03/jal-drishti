@@ -67,6 +67,9 @@ class JalDrishtiEngine:
             self.yolo = YOLO("yolov8n.pt") # Fallback to auto-download
             self.yolo.to(self.device)
 
+        # 2a. Track History for Persistence
+        self.track_history = {} # track_id -> frames_seen
+
         # Warmup
         logger.info("[Core] Engine ready.")
     
@@ -111,8 +114,14 @@ class JalDrishtiEngine:
 
     def infer(self, frame: np.ndarray):
         """
-        Executes the 7-Step Phase-2 Pipeline with GPU/FP16 optimization.
-        Executes the Dual-Stream Pipeline.
+        Executes the Active Analyst Pipeline (Single-Stream Tracking).
+        
+        Phase 1: Concept - "Active Analyst"
+        Phase 2: Setup - Low Conf Inference (0.10)
+        Phase 3: Logic - 3-Bucket Sorting
+        Phase 4: Visuals - "Ghost Box" (Hidden for now per user request)
+        Phase 5: Execution - Strict Rules
+        
         Input: RGB numpy array (H, W, 3)
         Output: Strict JSON Schema + Annotated Frame (np.ndarray)
         """
@@ -127,6 +136,7 @@ class JalDrishtiEngine:
 
         try:
             # --- Step 2: Pre-process (GAN Side) ---
+            # We still run GAN for the visuals, even if we infer on Raw
             # Resize to 256x256 (Native GAN resolution)
             original_h, original_w = frame.shape[:2]
             img_resized = cv2.resize(frame, (256, 256))
@@ -136,7 +146,7 @@ class JalDrishtiEngine:
             img_tensor = torch.from_numpy(img_resized_rgb).float().permute(2, 0, 1).unsqueeze(0).to(self.device)
             img_tensor = (img_tensor - 127.5) / 127.5
 
-            # --- Step 3: GAN Inference with FP16 Support ---
+            # --- Step 3: GAN Inference ---
             with torch.no_grad():
                 if self.use_fp16 and self.device.type == "cuda":
                     with torch.cuda.amp.autocast(dtype=torch.float16):
@@ -144,7 +154,7 @@ class JalDrishtiEngine:
                 else:
                     enhanced_tensor = self.gan(img_tensor)
 
-            # --- Step 4: Post-Process ---
+            # --- Step 4: Post-Process (GAN) ---
             enhanced_tensor = (enhanced_tensor + 1.0) / 2.0
             enhanced_tensor = torch.clamp(enhanced_tensor, 0.0, 1.0)
             
@@ -165,200 +175,151 @@ class JalDrishtiEngine:
             # --- Step 5: CLAHE (Enhancement) ---
             enhanced_final = self.apply_clahe(enhanced_bgr)
 
-            # --- Step 6: Dual-Stream YOLO Inference (OPTIMIZED) ---
-            
-            # Combine both images into a list for Batch Processing
-            # This runs 2x faster than calling predict() twice
-            batch_images = [frame, enhanced_final]
-            
-            # LOGIC PRESERVATION: Determine FP16 (Half-Precision) setting
-            # This ensures we keep the optimization from the code we just deleted
-            do_half = (self.use_fp16 and self.device.type == "cuda")
-            
-            # Run Inference once
-            # We use conf=0.15 (Low) intentionally so our custom 'process_results' 
-            # function can handle the specific class thresholds (e.g. Drone=0.15)
-            batch_results = self.yolo.predict(
-                batch_images, 
-                verbose=False, 
-                conf=0.15, 
-                device=self.device, 
-                half=do_half  # <--- Optimization Preserved Here
+            # --- Step 6: Single-Stream Inference (Active Analyst) ---
+            # "We lower the bar to 10% to catch debris, rocks, and faint shadows."
+            # We track on RAW frame for stability.
+            results = self.yolo.track(
+                frame, 
+                persist=True, 
+                conf=0.10, 
+                verbose=False,
+                device=self.device
             )
             
-            # Split results back
-            results_raw = [batch_results[0]]      # Result for 'frame'
-            results_enhanced = [batch_results[1]] # Result for 'enhanced_final''
-            
-            # --- Step 7: Merge & Annotate ---
-            detections = []
+            annotated_frame = enhanced_final.copy()
+            detections_payload = []
             max_conf = 0.0
             
-            # We draw on the Enhanced Frame because it looks better (User requirement)
-            # OR we draw on Raw? User said "Draw on Enhanced Feed because it looks cooler".
-            annotated_frame = enhanced_final.copy()
+            # buckets
+            threats = []   # Tier 1 (Red)
+            anomalies = [] # Tier 2 (Yellow)
+            neutrals = []  # Tier 3 (Hidden)
+
+            # Smart Mapping for Sorting
+            SPECIFIC_THREATS = [0, 1, 2, 3] # Mine, Sub, Diver, Drone
+            GEOMETRIC_SHAPES = [4, 5, 6]    # Pipe/Cylinder, Buoy/Sphere, Trap/Box
             
-            # Helper to process results with CLASS-SPECIFIC THRESHOLDS
-            raw_detections_list = []
+            # Reset track history if no detections (optional, or rely on max_age logic, 
+            # here we just keep growing it for simplicity within session)
+            current_ids = []
 
-            def process_results(results, source_tag):
-                nonlocal max_conf
-                if not results: return
-                
-                result = results[0]
-                for box in result.boxes:
-                    conf = float(box.conf[0])
-                    cls = int(box.cls[0])
-                    
-                    # 🛡️ GATEKEEPER LOGIC 🛡️
-                    # Har class ka apna cutoff set karo
-                    min_thresh = 0.25 # Default
-                    
-                    if cls == 2:   # DRONE (Mushkil hai, allow low confidence)
-                        min_thresh = 0.15
-                    elif cls == 1: # DIVER (Insaan hai, model sure hona chahiye)
-                        min_thresh = 0.55  # 👈 Isse False Positives kam honge
-                    elif cls == 0: # MINE
-                        min_thresh = 0.40
-                    elif cls == 3: # SUBMARINE
-                        min_thresh = 0.40
-                        
-                    # Agar confidence cutoff se kam hai, toh ignore karo
-                    if conf < min_thresh:
-                        continue
+            if results and results[0].boxes and results[0].boxes.id is not None:
+                boxes = results[0].boxes.xyxy.cpu().numpy()
+                track_ids = results[0].boxes.id.int().cpu().numpy()
+                confs = results[0].boxes.conf.cpu().numpy()
+                classes = results[0].boxes.cls.int().cpu().numpy()
 
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    label = self.yolo.names[cls]
+                for box, track_id, conf, cls_id in zip(boxes, track_ids, confs, classes):
+                    current_ids.append(track_id)
                     
-                    # Store in intermediate list for Smart NMS
-                    raw_detections_list.append({
-                        "box": [int(x1), int(y1), int(x2), int(y2)],
-                        "conf": conf,
-                        "cls": cls,
-                        "label": label,
-                        "source": source_tag
-                    })
+                    # Update Persistence
+                    self.track_history[track_id] = self.track_history.get(track_id, 0) + 1
+                    frames_seen = self.track_history[track_id]
                     
                     if conf > max_conf:
                         max_conf = conf
 
-            # Process both streams
-            process_results(results_raw, "RAW_SENSOR")
-            process_results(results_enhanced, "AI_ENHANCED")
-            
-            # --- Step 7.5: SMART NMS (The Fix) ---
-            final_detections = self.clean_detections(raw_detections_list)
+                    # --- BUCKET 1: THREATS (High Conf Specifics) ---
+                    # Red Box
+                    if cls_id in SPECIFIC_THREATS and conf > 0.60:
+                        threats.append((box, track_id, conf, cls_id))
 
-            # --- Step 7.6: Draw & Format ---
-            for det in final_detections:
-                x1, y1, x2, y2 = det["box"]
-                label = det["label"]
-                conf = det["conf"]
-                source_tag = det["source"]
+                    # --- BUCKET 2: ANOMALIES (Shapes OR Low Conf Specifics) ---
+                    # Yellow Box
+                    elif (cls_id in GEOMETRIC_SHAPES and conf > 0.35) or \
+                         (cls_id in SPECIFIC_THREATS and 0.35 < conf <= 0.60):
+                        anomalies.append((box, track_id, conf, cls_id))
+                        
+                    # --- BUCKET 3: NEUTRALS (Everything Else) ---
+                    # Hidden (filtered out visually) but logically present
+                    else:
+                        neutrals.append((box, track_id, conf, cls_id))
+
+            # --- VISUALIZATION STRATEGY ---
+            
+            # Helper to draw box
+            def draw_detection(box, label, color, thickness=2):
+                x1, y1, x2, y2 = map(int, box)
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, thickness)
                 
-                # Add to final response list
-                detections.append({
-                    "bbox": [x1, y1, x2, y2],
-                    "confidence": round(conf, 3),
-                    "label": label,
-                    "source": source_tag
+                # 1. Text Settings (Smaller font per your request)
+                font_scale = 0.4
+                font_thickness = 1
+                (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
+                
+                # 2. Smart Position Logic (Fixes "Missing Label" bug)
+                # If box is at the very top (y1 < 20), draw text INSIDE the box
+                if y1 - 20 < 0:
+                    text_y = y1 + h + 5
+                    bg_y1 = y1
+                    bg_y2 = y1 + h + 10
+                else:
+                    text_y = y1 - 5
+                    bg_y1 = y1 - h - 10
+                    bg_y2 = y1
+                
+                # Draw Background
+                cv2.rectangle(annotated_frame, (x1, text_y - h - 5), (x1 + w, text_y + 5), color, -1)
+                
+                # Draw Text
+                cv2.putText(annotated_frame, label, (x1, text_y), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), font_thickness)
+
+            # 1. DRAW THREATS (RED)
+            for (box, track_id, conf, cls_id) in threats:
+                # "Fix: Emulate Strict Labeling" - No ghost boxes
+                label_name = self.yolo.names[int(cls_id)].upper()
+                label = f"{label_name} {int(conf*100)}%"
+                draw_detection(box, label, (0, 0, 255), thickness=2)
+                
+                # Add to payload
+                detections_payload.append({
+                    "bbox": [int(x) for x in box],
+                    "confidence": round(float(conf), 3),
+                    "label": label_name,
+                    "type": "THREAT"
                 })
 
-                # --- ANNOTATION ---
-                # Green for Raw, Orange for AI
-                color = (0, 255, 0) if source_tag == "RAW_SENSOR" else (0, 140, 255)
+            # 2. DRAW ANOMALIES (YELLOW)
+            for (box, track_id, conf, cls_id) in anomalies:
+                label_name = self.yolo.names[int(cls_id)]
+                label = f"ANOMALY: {label_name}"
+                draw_detection(box, label, (0, 255, 255), thickness=2)
                 
-                # Draw Box
-                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                
-                # Draw Label (Simplified, NO source tag)
-                label_text = f"{label} {int(conf*100)}%"
-                (w, h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                
-                # Ensure text never goes off-screen
-                text_y = max(y1 - 5, 20)
-                
-                cv2.rectangle(annotated_frame, (x1, text_y - 15), (x1 + w, text_y + 5), color, -1)
-                
-                # Black text (0,0,0) for better contrast on bright Green/Orange
-                cv2.putText(annotated_frame, label_text, (x1, text_y), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                detections_payload.append({
+                    "bbox": [int(x) for x in box],
+                    "confidence": round(float(conf), 3),
+                    "label": label_name,
+                    "type": "ANOMALY"
+                })
+
+            # 3. NEUTRALS (HIDDEN)
+            # We do NOT draw them. We do NOT add them to the payload (unless requested for debug).
+            # They stay as silent tracks to prevent them from flickering into anomalies.
 
             # Determine System State
-            if max_conf > HIGH_CONFIDENCE_THRESHOLD:
+            if len(threats) > 0:
                 state = STATE_CONFIRMED_THREAT
-            elif max_conf > CONFIDENCE_THRESHOLD:
+            elif len(anomalies) > 0:
                 state = STATE_POTENTIAL_ANOMALY
             else:
                 state = STATE_SAFE_MODE
                 
-            # --- Step 7: Output Contract ---
+            # --- Output Contract ---
             latency_ms = (time.time() - start_time) * 1000
             response = {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "state": state,
-                "max_confidence": round(max_conf, 3),
-                "detections": detections,
+                "max_confidence": round(float(max_conf), 3),
+                "detections": detections_payload,
                 "latency_ms": round(latency_ms, 2)
             }
             
-            # Return the annotated enhanced frame directly (No blue filter!)
             return response, annotated_frame
 
         except Exception as e:
             logger.error(f"[Core] Pipeline Error: {e}", exc_info=True)
             return self._build_safe_response(), frame
-
-
-    def clean_detections(self, detections, iou_threshold=0.4):
-        """
-        Smart Cleaner with 'Diver Priority'.
-        Rule: If Diver (1) and Submarine (3) overlap, KILL the Submarine.
-        """
-        # 1. Sort by confidence (Highest first)
-        detections.sort(key=lambda x: x['conf'], reverse=True)
-        
-        remove_indices = set()
-        
-        for i in range(len(detections)):
-            if i in remove_indices: continue
-            
-            for j in range(i + 1, len(detections)):
-                if j in remove_indices: continue
-                
-                # --- IoU Calculation ---
-                boxA = detections[i]['box']
-                boxB = detections[j]['box']
-                
-                xA = max(boxA[0], boxB[0])
-                yA = max(boxA[1], boxB[1])
-                xB = min(boxA[2], boxB[2])
-                yB = min(boxA[3], boxB[3])
-                
-                interArea = max(0, xB - xA) * max(0, yB - yA)
-                boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-                boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-                iou = interArea / float(boxAArea + boxBArea - interArea)
-                
-                # --- LOGIC: CONFLICT RESOLUTION ---
-                if iou > iou_threshold:
-                    cls1 = detections[i]['cls']
-                    cls2 = detections[j]['cls']
-                    
-                    # 🔥 THE HACK: Diver (1) vs Submarine (3)
-                    # If one is Diver and the other is Submarine, ALWAYS remove the Submarine.
-                    if (cls1 == 1 and cls2 == 3):
-                        remove_indices.add(j) # Remove Submarine (at j)
-                        continue
-                    elif (cls1 == 3 and cls2 == 1):
-                        remove_indices.add(i) # Remove Submarine (at i)
-                        break # 'i' is gone, stop checking 'j's for it
-                    
-                    # Standard Logic: Remove lower confidence one
-                    remove_indices.add(j)
-
-        # Return only the survivors
-        return [d for k, d in enumerate(detections) if k not in remove_indices]
 
     def apply_clahe(self, img_bgr):
         """
