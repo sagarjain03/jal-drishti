@@ -83,8 +83,8 @@ const MetricsPanel = ({
                 {/* FPS Graph */}
                 <MetricsGraph
                     data={fpsHistory}
-                    width={400}
-                    height={55}
+                    width={240}
+                    height={45}
                     color="#22C55E"
                     label="FPS"
                     unit=""
@@ -96,40 +96,16 @@ const MetricsPanel = ({
                 {/* Latency Graph */}
                 <MetricsGraph
                     data={latencyHistory}
-                    width={400}
-                    height={55}
+                    width={240}
+                    height={45}
                     color="#00d4ff"
                     label="Latency"
                     unit="ms"
                     maxPoints={60}
                     minValue={0}
                 />
-
-                {/* Safe Mode Status */}
-                <div className={`safe-mode-status ${inSafeMode ? 'active' : ''}`}>
-                    <div className="safe-mode-indicator">
-                        <span className={`safe-mode-dot ${inSafeMode ? 'danger' : 'success'}`}></span>
-                        <span className="safe-mode-label">
-                            {inSafeMode ? 'SAFE MODE' : 'NORMAL'}
-                        </span>
-                    </div>
-                    {inSafeMode && (
-                        <span className="safe-mode-duration">
-                            {safeModeSeconds}s
-                        </span>
-                    )}
-                </div>
-
-                {/* Situational Awareness Score */}
-                <div className="awareness-score">
-                    <span className="awareness-score-label">Situational Awareness</span>
-                    <span className={`awareness-score-value ${getAwarenessClass()}`}>
-                        {awarenessScore} / 100
-                    </span>
-                </div>
             </div>
         </div>
-
     );
 };
 

@@ -133,12 +133,7 @@ const StatusBar = ({
             </div>
 
             <div className="status-metrics">
-                {/* System State Badge */}
-                <div className={getStateBadgeClass()}>
-                    {STATE_LABELS[systemState] || 'SAFE MODE'}
-                </div>
-
-                {/* Risk Level Badge */}
+                {/* Risk Level Badge (Includes Safe Mode Indication) */}
                 <div className={getRiskLevelClass()}>
                     RISK LEVEL: {getRiskLevel()}
                 </div>
@@ -167,28 +162,10 @@ const StatusBar = ({
                     </span>
                 </div>
 
-                {/* ML FPS (backend, if available) */}
-                
-
-                {/* Input Source Indicator */}
-                <div className="input-source">
-                    <span className="input-source-icon">{getInputSourceIcon()}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span className="input-source-label">Source</span>
-                        <span className="input-source-value">{inputSource}</span>
-                    </div>
-                </div>
-
                 {/* System Uptime */}
                 <div className="uptime-display">
                     <span className="uptime-label">Uptime</span>
                     <span className="uptime-value">{uptime}</span>
-                </div>
-
-                {/* Connection Status */}
-                <div className="metric-group">
-                    <span className={`status-dot ${getConnectionClass()}`}></span>
-                    <span className="status-text">{getConnectionLabel()}</span>
                 </div>
             </div>
         </div>

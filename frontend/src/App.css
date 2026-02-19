@@ -418,11 +418,19 @@ body {
 }
 
 /* Custom Scrollbar for Sensor Panel (Black) */
-.sensor-status-panel::-webkit-scrollbar {
+.sensor-status-panel::-webkit-scrollbar,
+.left-panel::-webkit-scrollbar,
+.right-panel::-webkit-scrollbar,
+.alert-table-wrapper::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
 
-.sensor-status-panel::-webkit-scrollbar-track {
+.sensor-status-panel::-webkit-scrollbar-track,
+.left-panel::-webkit-scrollbar-track,
+.right-panel::-webkit-scrollbar-track,
+.alert-table-wrapper::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
   background: #000;
 }
 
@@ -3400,4 +3408,92 @@ body {
 
 .risk-progress {
   transition: stroke-dashoffset 1s ease-out;
+}
+
+/* ================================================
+   TACTICAL NAVIGATION ANIMATIONS
+   ================================================ */
+@keyframes activeGlow {
+  0% {
+    box-shadow: 0 0 8px rgba(107, 138, 255, 0.4), 0 0 16px rgba(107, 138, 255, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 14px rgba(107, 138, 255, 0.7), 0 0 28px rgba(107, 138, 255, 0.35);
+  }
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.85);
+  }
+}
+
+/* ================================================
+   COMPACT DENSITY OVERRIDES (User Feedback)
+   ================================================ */
+.sensor-grid {
+  gap: 6px;
+  padding: 6px;
+}
+
+.sensor-card {
+  padding: 8px 10px;
+}
+
+.sensor-card .sensor-header {
+  margin-bottom: 4px;
+}
+
+.sensor-card .sensor-role {
+  margin-bottom: 4px;
+}
+
+.sensor-card .data-row {
+  gap: 0;
+}
+
+/* Fix Alert Log visibility */
+.alert-panel-container {
+  height: 100% !important;
+  min-height: 200px;
+}
+
+.alert-table td {
+  padding: 6px 14px; /* Compact rows */
+}
+
+/* Fix Metrics Panel spacing */
+.metrics-panel-content {
+  padding: 8px;
+  gap: 4px;
+}
+
+.metrics-panel-wrapper {
+  padding: 0 !important;
+}
+
+/* Smooth transitions for throttled data updates */
+.sensor-card .data-value,
+.sensor-card .sensor-role,
+.sensor-card .sensor-dot {
+  transition: all 0.8s ease;
+}
+
+.fusion-state-badge {
+  transition: background-color 0.8s ease, color 0.5s ease;
+}
+
+.operator-panel-container .context-alert,
+.operator-panel-container .priority-badge,
+.operator-panel-container .explainability-section {
+  transition: all 0.6s ease;
+}
+
+.sensor-confidence-bar .confidence-fill {
+  transition: width 0.8s ease;
 }

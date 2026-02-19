@@ -1,96 +1,22 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { SYSTEM_STATES, STATE_COLORS } from '../constants';
+import React, { useState } from 'react';
+import { SYSTEM_STATES } from '../constants';
 import '../App.css';
 
 /**
- * AlertPanel Component (Redesigned Phase-3)
+ * AlertPanel Component (v3 — Context-Driven)
  * 
- * High-tech, analytical display of system alerts.
- * Features:
- * - Tabular layout for clean data scanning
- * - Status indicators with pulse effects
- * - Clear action buttons for operator
- * - Concise, professional typography
+ * Reads from centralized alertManager via SystemStateContext.
+ * No local state tracking / debounce — all handled by alertManager.
+ * Displays noise badges and SAFE_MODE reason codes.
  */
 const AlertPanel = ({
+    alerts = [],
+    lowSignalReliability = false,
+    safeModeReason = null,
     currentState = SYSTEM_STATES.SAFE_MODE,
-    detections = [],
-    maxConfidence = 0,
-    addEvent = null,
-    emitAlert = true  // ISSUE 2 FIX: Only process when backend says state changed
+    addEvent = null
 }) => {
-    const prevStateRef = useRef(currentState);
-    const [alerts, setAlerts] = useState([]);
     const [handledAlertState, setHandledAlertState] = useState(null);
-
-    // ISSUE 2 FIX: Debounce state - lock alerts for 3 seconds after showing
-    const [isLocked, setIsLocked] = useState(false);
-    const lockTimeoutRef = useRef(null);
-    const DEBOUNCE_MS = 3000;  // 3 second lock
-
-    // Handle state transitions with debounce
-    useEffect(() => {
-        const prevState = prevStateRef.current;
-
-        // ISSUE 2 FIX: Only process if NOT locked AND state actually changed
-        if (prevState !== currentState && !isLocked) {
-            const timestamp = new Date().toLocaleTimeString();
-            let newAlert = null;
-
-            if (prevState === SYSTEM_STATES.SAFE_MODE && currentState === SYSTEM_STATES.POTENTIAL_ANOMALY) {
-                newAlert = {
-                    id: Date.now(),
-                    type: 'WARNING',
-                    message: 'POTENTIAL ANOMALY DETECTED',
-                    timestamp,
-                    confidence: maxConfidence
-                };
-            } else if (prevState === SYSTEM_STATES.POTENTIAL_ANOMALY && currentState === SYSTEM_STATES.CONFIRMED_THREAT) {
-                newAlert = {
-                    id: Date.now(),
-                    type: 'CRITICAL',
-                    message: 'THREAT CONFIRMED - ACTION REQUIRED',
-                    timestamp,
-                    confidence: maxConfidence
-                };
-            } else if (
-                (prevState === SYSTEM_STATES.CONFIRMED_THREAT || prevState === SYSTEM_STATES.POTENTIAL_ANOMALY) &&
-                currentState === SYSTEM_STATES.SAFE_MODE
-            ) {
-                newAlert = {
-                    id: Date.now(),
-                    type: 'INFO',
-                    message: 'THREAT CLEARED / NORMAL OPERATIONS',
-                    timestamp,
-                    confidence: maxConfidence
-                };
-            }
-
-            if (newAlert) {
-                setAlerts((prev) => [newAlert, ...prev].slice(0, 15));
-
-                // ISSUE 2 FIX: Lock for 3 seconds after showing alert
-                setIsLocked(true);
-                if (lockTimeoutRef.current) {
-                    clearTimeout(lockTimeoutRef.current);
-                }
-                lockTimeoutRef.current = setTimeout(() => {
-                    setIsLocked(false);
-                }, DEBOUNCE_MS);
-            }
-            setHandledAlertState(null);
-            prevStateRef.current = currentState;
-        }
-    }, [currentState, maxConfidence, isLocked]);
-
-    // Cleanup timeout on unmount
-    useEffect(() => {
-        return () => {
-            if (lockTimeoutRef.current) {
-                clearTimeout(lockTimeoutRef.current);
-            }
-        };
-    }, []);
 
     const getRowClass = (type) => {
         switch (type) {
@@ -121,6 +47,19 @@ const AlertPanel = ({
                 <div className="header-title">
                     <span className="icon">⚠️</span>
                     SYSTEM ALERT LOG
+                    {lowSignalReliability && (
+                        <span style={{
+                            marginLeft: '8px',
+                            background: '#F97316',
+                            color: '#000',
+                            padding: '1px 6px',
+                            borderRadius: '3px',
+                            fontSize: '9px',
+                            fontWeight: 700
+                        }}>
+                            LOW SIGNAL
+                        </span>
+                    )}
                 </div>
                 <div className="header-status">
                     <span className="label">CURRENT STATUS:</span>
@@ -128,7 +67,7 @@ const AlertPanel = ({
                 </div>
             </div>
 
-            {/* Operator Actions Bar - Only visible when needed */}
+            {/* Operator Actions Bar */}
             {showActions && (
                 <div className="operator-actions-bar">
                     <span className="action-label">OPERATOR DECISION REQUIRED:</span>
@@ -149,15 +88,16 @@ const AlertPanel = ({
                     <thead>
                         <tr>
                             <th width="15%">TIME</th>
-                            <th width="15%">LEVEL</th>
-                            <th width="50%">EVENT MESSAGE</th>
-                            <th width="20%">CONFIDENCE</th>
+                            <th width="12%">LEVEL</th>
+                            <th width="43%">EVENT MESSAGE</th>
+                            <th width="15%">CONFIDENCE</th>
+                            <th width="15%">STATUS</th>
                         </tr>
                     </thead>
                     <tbody>
                         {alerts.length === 0 ? (
                             <tr className="empty-row">
-                                <td colSpan="4">NO RECENT ALERTS LOGGED</td>
+                                <td colSpan="5">NO RECENT ALERTS LOGGED</td>
                             </tr>
                         ) : (
                             alerts.map((alert) => (
@@ -169,10 +109,26 @@ const AlertPanel = ({
                                         <div className="confidence-bar-bg">
                                             <div
                                                 className="confidence-bar-fill"
-                                                style={{ width: `${alert.confidence * 100}%` }}
+                                                style={{ width: `${(alert.confidence || 0) * 100}%` }}
                                             />
                                         </div>
-                                        <span className="confidence-text">{(alert.confidence * 100).toFixed(0)}%</span>
+                                        <span className="confidence-text">{((alert.confidence || 0) * 100).toFixed(0)}%</span>
+                                    </td>
+                                    <td style={{ fontSize: '9px' }}>
+                                        {alert.badges && alert.badges.length > 0 && alert.badges.map((badge, i) => (
+                                            <span key={i} style={{
+                                                display: 'inline-block',
+                                                background: badge === 'LOW SIGNAL RELIABILITY' ? '#F97316' : '#64748B',
+                                                color: '#000',
+                                                padding: '1px 4px',
+                                                borderRadius: '2px',
+                                                fontSize: '8px',
+                                                fontWeight: 600,
+                                                marginRight: '2px'
+                                            }}>
+                                                {badge}
+                                            </span>
+                                        ))}
                                     </td>
                                 </tr>
                             ))

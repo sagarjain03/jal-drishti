@@ -40,16 +40,17 @@ const SonarRadar = ({ detections = [] }) => {
     return (
         <div style={{
             position: 'relative',
-            width: '500px',
-            height: '500px',
-            background: '#0A0A0A',
+            width: '100%',
+            height: '100%',
+            background: '#09090B', // Matte black
             borderRadius: '8px',
-            border: '1px solid #262626',
+            border: '1px solid #27272A', // Zinc-800
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            overflow: 'hidden'
         }}>
-            <svg width="500" height="500" style={{ position: 'absolute' }}>
+            <svg viewBox={`0 0 ${2 * centerX} ${2 * centerY}`} style={{ width: '100%', height: '100%', maxHeight: '100%', maxWidth: '100%' }} preserveAspectRatio="xMidYMid meet">
                 {/* Concentric Zones */}
                 {zones.map((zone, idx) => (
                     <g key={idx}>
@@ -61,17 +62,18 @@ const SonarRadar = ({ detections = [] }) => {
                             fillOpacity={zone.opacity}
                             stroke={zone.color}
                             strokeWidth="1"
-                            strokeOpacity="0.3"
+                            strokeOpacity="0.2"
                         />
                         {/* Zone Label */}
                         <text
                             x={centerX}
-                            y={centerY - zone.radius + 15}
+                            y={centerY - zone.radius + 12}
                             fill={zone.color}
                             fontSize="9"
-                            fontWeight="700"
+                            fontWeight="600"
                             textAnchor="middle"
-                            opacity="0.6"
+                            opacity="0.8"
+                            style={{ pointerEvents: 'none' }}
                         >
                             {zone.range}m
                         </text>
@@ -90,9 +92,9 @@ const SonarRadar = ({ detections = [] }) => {
                             y1={centerY}
                             x2={x2}
                             y2={y2}
-                            stroke="#262626"
+                            stroke="#3F3F46" // Zinc-700
                             strokeWidth="1"
-                            opacity="0.3"
+                            opacity="0.4"
                         />
                     );
                 })}
@@ -101,13 +103,13 @@ const SonarRadar = ({ detections = [] }) => {
                 <defs>
                     <linearGradient id="sweepGradient" x1="0%" y1="0%" x2="100%" y2="0%">
                         <stop offset="0%" stopColor="#22C55E" stopOpacity="0" />
-                        <stop offset="100%" stopColor="#22C55E" stopOpacity="0.3" />
+                        <stop offset="100%" stopColor="#22C55E" stopOpacity="0.15" />
                     </linearGradient>
                 </defs>
                 <path
                     d={`M ${centerX} ${centerY} L ${centerX + maxRadius * Math.cos((sweepAngle * Math.PI) / 180)} ${centerY + maxRadius * Math.sin((sweepAngle * Math.PI) / 180)} A ${maxRadius} ${maxRadius} 0 0 1 ${centerX + maxRadius * Math.cos(((sweepAngle - 60) * Math.PI) / 180)} ${centerY + maxRadius * Math.sin(((sweepAngle - 60) * Math.PI) / 180)} Z`}
                     fill="url(#sweepGradient)"
-                    opacity="0.4"
+                    opacity="0.8"
                 />
 
                 {/* Detection Points */}
@@ -127,7 +129,7 @@ const SonarRadar = ({ detections = [] }) => {
                                 cy={y}
                                 r="12"
                                 fill={color}
-                                opacity="0.2"
+                                opacity="0.15"
                             >
                                 <animate
                                     attributeName="r"
@@ -140,20 +142,21 @@ const SonarRadar = ({ detections = [] }) => {
                             <circle
                                 cx={x}
                                 cy={y}
-                                r="5"
+                                r="4"
                                 fill={color}
-                                stroke={color}
-                                strokeWidth="2"
-                                opacity="0.9"
+                                stroke="#09090B"
+                                strokeWidth="1.5"
+                                opacity="1"
                             />
                             {/* Label */}
                             <text
                                 x={x}
                                 y={y - 15}
-                                fill="#E5E5E5"
+                                fill="#E4E4E7" // Zinc-200
                                 fontSize="10"
                                 fontWeight="600"
                                 textAnchor="middle"
+                                style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}
                             >
                                 {detection.distance}m
                             </text>
@@ -164,6 +167,7 @@ const SonarRadar = ({ detections = [] }) => {
                                 fontSize="9"
                                 fontWeight="700"
                                 textAnchor="middle"
+                                style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}
                             >
                                 {(detection.confidence * 100).toFixed(0)}%
                             </text>
@@ -175,23 +179,23 @@ const SonarRadar = ({ detections = [] }) => {
                 <circle
                     cx={centerX}
                     cy={centerY}
-                    r="8"
+                    r="5"
                     fill="#22C55E"
                     opacity="0.8"
                 />
                 <circle
                     cx={centerX}
                     cy={centerY}
-                    r="3"
-                    fill="#0A0A0A"
+                    r="2"
+                    fill="#09090B"
                 />
             </svg>
 
             {/* Compass Labels */}
-            <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', color: '#737373', fontSize: '11px', fontWeight: '700' }}>N</div>
-            <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', color: '#737373', fontSize: '11px', fontWeight: '700' }}>S</div>
-            <div style={{ position: 'absolute', top: '50%', left: '10px', transform: 'translateY(-50%)', color: '#737373', fontSize: '11px', fontWeight: '700' }}>W</div>
-            <div style={{ position: 'absolute', top: '50%', right: '10px', transform: 'translateY(-50%)', color: '#737373', fontSize: '11px', fontWeight: '700' }}>E</div>
+            <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', color: '#52525B', fontSize: '10px', fontWeight: '700' }}>N</div>
+            <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', color: '#52525B', fontSize: '10px', fontWeight: '700' }}>S</div>
+            <div style={{ position: 'absolute', top: '50%', left: '10px', transform: 'translateY(-50%)', color: '#52525B', fontSize: '10px', fontWeight: '700' }}>W</div>
+            <div style={{ position: 'absolute', top: '50%', right: '10px', transform: 'translateY(-50%)', color: '#52525B', fontSize: '10px', fontWeight: '700' }}>E</div>
         </div>
     );
 };
