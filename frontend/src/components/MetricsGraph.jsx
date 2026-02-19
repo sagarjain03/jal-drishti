@@ -117,7 +117,7 @@ const MetricsGraph = ({
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         style={{
-                            filter: `drop-shadow(0 0 4px ${color}60)`
+                            filter: `drop-shadow(0 0 2px ${color}40)`
                         }}
                     />
                 )}
@@ -130,7 +130,7 @@ const MetricsGraph = ({
                         r="3"
                         fill={color}
                         style={{
-                            filter: `drop-shadow(0 0 6px ${color})`
+                            filter: `drop-shadow(0 0 3px ${color}80)`
                         }}
                     />
                 )}

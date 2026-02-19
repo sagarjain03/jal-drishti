@@ -1,316 +1,238 @@
-import React from 'react';
+import React, { useCallback } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import ThermalHeatmap from '../components/ThermalHeatmap';
+import { useInfraredEngine } from '../sensors/infrared/infraredEngine';
+import { useSystemState } from '../context/SystemStateContext';
 
 /**
- * Infrared Analysis Console
- * Mid-range thermal confirmation analysis
+ * Infrared Page (v3 — Engine-Driven)
+ * 
+ * All data from useInfraredEngine() — zero hardcoded values.
+ * Panels: Zone Analysis, Stability, Material Signature, Drift Rate,
+ *         Area, Confidence Trend, Correlation Score
  */
 const Infrared = () => {
-    // Hardcoded realistic IR metrics
-    const metrics = {
-        heatDelta: 6.4,
-        backgroundTemp: 12,
-        irConfidence: 64,
-        signatureType: 'Metallic Anomaly',
-        thermalStability: 'CONSISTENT'
-    };
+    const { systemStatus } = useOutletContext();
+    const { updateIRData, correlation } = useSystemState();
 
-    // Correlation data
-    const correlation = {
-        sonarDetection: true,
-        distance: 120,
-        syncStatus: 'ALIGNED',
-        riskContribution: 30
-    };
+    // IR engine: feeds SystemStateManager via callback
+    const ir = useInfraredEngine(useCallback((data) => {
+        updateIRData(data);
+    }, [updateIRData]));
 
     return (
-        <div style={{
-            height: '100%',
-            padding: '20px',
-            overflowY: 'auto',
-            background: '#0A0A0A'
-        }}>
-            {/* Header */}
-            <div style={{
-                marginBottom: '20px',
-                borderBottom: '1px solid #262626',
-                paddingBottom: '12px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-            }}>
-                <h1 style={{
-                    color: '#E5E5E5',
-                    margin: 0,
-                    fontSize: '20px',
-                    fontWeight: '700',
-                    letterSpacing: '0.05em'
-                }}>
-                    🌡️ INFRARED THERMAL ANALYSIS
-                </h1>
-
-                {/* Status Badge */}
-                <div style={{
-                    background: 'rgba(249, 115, 22, 0.15)',
-                    color: '#F97316',
-                    border: '1px solid rgba(249, 115, 22, 0.3)',
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: '700',
-                    letterSpacing: '0.05em'
-                }}>
-                    MID-RANGE CONFIRMATION
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '15px', gap: '12px', overflowY: 'auto', background: '#0A0A0F' }}>
+            {/* PAGE HEADER */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ margin: 0, color: '#FF8B8B', fontSize: '16px', letterSpacing: '2px', fontFamily: '"JetBrains Mono", monospace' }}>
+                    INFRARED ANALYSIS
+                </h2>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <StatusBadge label="STABILITY" value={ir.thermalStability} quality={ir.thermalStability === 'CONSISTENT' ? 'GOOD' : ir.thermalStability === 'MODERATE' ? 'MODERATE' : 'POOR'} />
+                    <StatusBadge label="HEALTH" value={`${Math.round(ir.sensorHealth * 100)}%`} quality={ir.sensorHealth > 0.7 ? 'GOOD' : ir.sensorHealth > 0.4 ? 'MODERATE' : 'POOR'} />
+                    <StatusBadge label="SIGNATURE" value={ir.signatureType} quality={ir.signatureType === 'METALLIC' ? 'POOR' : ir.signatureType === 'ORGANIC' ? 'MODERATE' : 'GOOD'} />
                 </div>
             </div>
 
-            {/* Main Layout */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 350px',
-                gap: '20px',
-                marginBottom: '20px'
-            }}>
-                {/* Left: Thermal Heatmap */}
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
-                    <ThermalHeatmap />
+            {/* TOP ROW: Heatmap + Zone Analysis */}
+            <div style={{ display: 'flex', gap: '12px', flex: 1, minHeight: '350px' }}>
+                {/* Thermal Heatmap */}
+                <div style={{ flex: 1, background: 'rgba(25,15,15,0.9)', borderRadius: '10px', border: '1px solid rgba(255,100,100,0.1)', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                    <SectionHeader title="THERMAL HEATMAP" subtitle={`Δ${ir.heatDelta}°C | BG: ${ir.backgroundTemp}°C`} />
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <ThermalHeatmap heatData={ir.heatmapGrid} />
+                    </div>
                 </div>
 
-                {/* Right: IR Metrics Panel */}
-                <div style={{
-                    background: '#121212',
-                    border: '1px solid #262626',
-                    borderRadius: '8px',
-                    padding: '20px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '16px'
-                }}>
-                    <div style={{
-                        fontSize: '12px',
-                        fontWeight: '700',
-                        color: '#A3A3A3',
-                        letterSpacing: '0.05em',
-                        borderBottom: '1px solid #262626',
-                        paddingBottom: '10px'
-                    }}>
-                        IR METRICS
-                    </div>
-
-                    {/* Metric Items */}
-                    <MetricItem
-                        label="Heat Delta"
-                        value={`+${metrics.heatDelta}°C`}
-                        color="#F97316"
-                    />
-                    <MetricItem
-                        label="Background Temp"
-                        value={`${metrics.backgroundTemp}°C`}
-                        color="#6B7280"
-                    />
-                    <MetricItem
-                        label="IR Confidence"
-                        value={`${metrics.irConfidence}%`}
-                        color="#F97316"
-                        bar={metrics.irConfidence / 100}
-                    />
-                    <MetricItem
-                        label="Signature Type"
-                        value={metrics.signatureType}
-                        color="#FB923C"
-                    />
-                    <MetricItem
-                        label="Thermal Stability"
-                        value={metrics.thermalStability}
-                        color="#22C55E"
-                    />
-
-                    {/* Thermal Zones */}
-                    <div style={{ marginTop: '10px' }}>
-                        <div style={{
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            color: '#737373',
-                            marginBottom: '8px',
-                            letterSpacing: '0.05em'
-                        }}>
-                            DETECTED ZONES
-                        </div>
-
-                        <div style={{
-                            background: '#0A0A0A',
-                            padding: '8px 10px',
-                            borderRadius: '4px',
-                            marginBottom: '6px',
-                            border: '1px solid #262626',
-                            fontSize: '10px'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                marginBottom: '4px'
-                            }}>
-                                <span style={{ color: '#E5E5E5', fontWeight: '600' }}>
-                                    Zone Alpha
-                                </span>
-                                <span style={{ color: '#EF4444', fontWeight: '700' }}>
-                                    HIGH
-                                </span>
-                            </div>
-                            <div style={{ color: '#737373', fontSize: '9px' }}>
-                                Temp: 18.4°C • Size: 2.3m²
-                            </div>
-                        </div>
-
-                        <div style={{
-                            background: '#0A0A0A',
-                            padding: '8px 10px',
-                            borderRadius: '4px',
-                            border: '1px solid #262626',
-                            fontSize: '10px'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                marginBottom: '4px'
-                            }}>
-                                <span style={{ color: '#E5E5E5', fontWeight: '600' }}>
-                                    Zone Beta
-                                </span>
-                                <span style={{ color: '#F97316', fontWeight: '700' }}>
-                                    MEDIUM
-                                </span>
-                            </div>
-                            <div style={{ color: '#737373', fontSize: '9px' }}>
-                                Temp: 16.2°C • Size: 1.8m²
-                            </div>
-                        </div>
+                {/* Zone Analysis Table */}
+                <div style={{ flex: 1, background: 'rgba(25,15,15,0.9)', borderRadius: '10px', border: '1px solid rgba(255,100,100,0.1)', padding: '12px', display: 'flex', flexDirection: 'column' }}>
+                    <SectionHeader title="ZONE ANALYSIS" subtitle={`${ir.zoneSummaries.length} ZONES`} />
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
+                            <thead>
+                                <tr style={{ color: '#64748B', borderBottom: '1px solid rgba(255,100,100,0.1)' }}>
+                                    <th style={{ padding: '4px', textAlign: 'left' }}>ZONE</th>
+                                    <th style={{ padding: '4px', textAlign: 'right' }}>TEMP</th>
+                                    <th style={{ padding: '4px', textAlign: 'right' }}>Δ</th>
+                                    <th style={{ padding: '4px', textAlign: 'right' }}>STABILITY</th>
+                                    <th style={{ padding: '4px', textAlign: 'right' }}>DRIFT</th>
+                                    <th style={{ padding: '4px', textAlign: 'right' }}>AREA</th>
+                                    <th style={{ padding: '4px', textAlign: 'center' }}>LEVEL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {ir.zoneSummaries.map(zone => (
+                                    <tr key={zone.id} style={{ borderBottom: '1px solid rgba(255,100,100,0.05)' }}>
+                                        <td style={{ padding: '4px', color: '#CBD5E1' }}>{zone.label}</td>
+                                        <td style={{ padding: '4px', textAlign: 'right', color: '#CBD5E1' }}>{zone.temp}°C</td>
+                                        <td style={{ padding: '4px', textAlign: 'right', color: zone.heatDelta > 8 ? '#EF4444' : zone.heatDelta > 4 ? '#F97316' : '#22C55E' }}>
+                                            +{zone.heatDelta}°C
+                                        </td>
+                                        <td style={{ padding: '4px', textAlign: 'right', color: zone.stability > 0.7 ? '#22C55E' : '#F97316' }}>
+                                            {(zone.stability * 100).toFixed(0)}%
+                                        </td>
+                                        <td style={{ padding: '4px', textAlign: 'right', color: Math.abs(zone.driftRate) > 1 ? '#F97316' : '#94A3B8' }}>
+                                            {zone.driftRate > 0 ? '+' : ''}{zone.driftRate}°/s
+                                        </td>
+                                        <td style={{ padding: '4px', textAlign: 'right', color: '#94A3B8' }}>{zone.area} m²</td>
+                                        <td style={{ padding: '4px', textAlign: 'center' }}>
+                                            <span style={{
+                                                background: zone.level === 'HIGH' ? '#EF4444' : zone.level === 'MEDIUM' ? '#F97316' : '#22C55E',
+                                                color: '#000',
+                                                padding: '1px 6px',
+                                                borderRadius: '3px',
+                                                fontSize: '8px',
+                                                fontWeight: 700
+                                            }}>
+                                                {zone.level}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
-            {/* Bottom: Correlation Panel */}
-            <div style={{
-                background: '#121212',
-                border: '1px solid #262626',
-                borderRadius: '8px',
-                padding: '20px'
-            }}>
-                <div style={{
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    color: '#A3A3A3',
-                    letterSpacing: '0.05em',
-                    marginBottom: '16px',
-                    borderBottom: '1px solid #262626',
-                    paddingBottom: '10px'
-                }}>
-                    MULTI-SENSOR CORRELATION
-                </div>
+            {/* BOTTOM ROW: Data Panels */}
+            <div style={{ display: 'flex', gap: '12px', height: '200px' }}>
+                {/* Material Signature */}
+                <DataPanel title="MATERIAL SIGNATURE" style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                        <span style={{
+                            color: ir.signatureType === 'METALLIC' ? '#EF4444' : ir.signatureType === 'ORGANIC' ? '#F97316' : '#22C55E',
+                            fontSize: '14px',
+                            fontWeight: 700
+                        }}>
+                            {ir.signatureType}
+                        </span>
+                    </div>
+                    <CompositionBar label="Thermal Inertia" value={ir.materialBreakdown.thermalInertia} max={0.4} color="#EF4444" />
+                    <CompositionBar label="Diffusion Rate" value={ir.materialBreakdown.diffusionRate} max={0.35} color="#F97316" />
+                    <CompositionBar label="Shape Coherence" value={ir.materialBreakdown.shapeCoherence} max={0.25} color="#A855F7" />
+                </DataPanel>
 
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: '20px'
-                }}>
-                    <CorrelationItem
-                        label="Sonar Detection"
-                        value={correlation.sonarDetection ? 'YES' : 'NO'}
-                        color={correlation.sonarDetection ? '#22C55E' : '#737373'}
-                        icon="📡"
-                    />
-                    <CorrelationItem
-                        label="Distance Match"
-                        value={`${correlation.distance}m`}
-                        color="#6B7280"
-                        icon="📏"
-                    />
-                    <CorrelationItem
-                        label="Sync Status"
-                        value={correlation.syncStatus}
-                        color="#22C55E"
-                        icon="🔗"
-                    />
-                    <CorrelationItem
-                        label="Risk Contribution"
-                        value={`+${correlation.riskContribution}%`}
-                        color="#F97316"
-                        icon="⚠️"
-                    />
-                </div>
+                {/* Stability Index */}
+                <DataPanel title="STABILITY INDEX" style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
+                        <div style={{ textAlign: 'center' }}>
+                            <div style={{
+                                fontSize: '32px',
+                                fontWeight: 700,
+                                color: ir.avgStability > 0.7 ? '#22C55E' : ir.avgStability > 0.4 ? '#F97316' : '#EF4444',
+                                fontFamily: '"JetBrains Mono", monospace'
+                            }}>
+                                {(ir.avgStability * 100).toFixed(0)}%
+                            </div>
+                            <div style={{ color: '#64748B', fontSize: '10px', marginTop: '4px' }}>{ir.thermalStability}</div>
+                        </div>
+                    </div>
+                </DataPanel>
 
-                <div style={{
-                    marginTop: '16px',
-                    padding: '10px 12px',
-                    background: 'rgba(249, 115, 22, 0.1)',
-                    border: '1px solid rgba(249, 115, 22, 0.2)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    color: '#FB923C'
-                }}>
-                    <strong>ANALYSIS:</strong> Thermal signature correlates with sonar detection at 120m.
-                    Metallic heat pattern suggests mechanical object. Combined confidence elevated to SUSPICION level.
-                </div>
+                {/* Confidence Trend */}
+                <DataPanel title="CONFIDENCE TREND" style={{ flex: 1.5 }}>
+                    <ConfidenceTrendGraph data={ir.confidenceTrend} />
+                </DataPanel>
+
+                {/* Correlation Score */}
+                <DataPanel title="CORRELATION" style={{ flex: 1 }}>
+                    <MetricRow label="Score" value={((correlation?.correlationScore || 0) * 100).toFixed(0) + '%'} />
+                    <MetricRow label="Boost" value={`+${((correlation?.correlationBoost || 0) * 100).toFixed(0)}%`} />
+                    <div style={{ borderTop: '1px solid rgba(255,100,100,0.15)', marginTop: '4px', paddingTop: '4px' }}>
+                        <span style={{ color: '#64748B', fontSize: '9px' }}>BREAKDOWN</span>
+                        <MetricRow label="Sonar↔Cam" value={((correlation?.breakdown?.sonarCamera || 0) * 100).toFixed(0) + '%'} />
+                        <MetricRow label="IR↔Sonar" value={((correlation?.breakdown?.irSonar || 0) * 100).toFixed(0) + '%'} />
+                        <MetricRow label="IR↔Camera" value={((correlation?.breakdown?.irCamera || 0) * 100).toFixed(0) + '%'} />
+                    </div>
+                    <div style={{ marginTop: '6px', textAlign: 'center', fontSize: '9px', color: '#64748B' }}>
+                        {correlation?.reason || 'No data'}
+                    </div>
+                </DataPanel>
             </div>
         </div>
     );
 };
 
-// Helper component for metrics
-const MetricItem = ({ label, value, color, bar }) => (
-    <div>
-        <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: '4px'
-        }}>
-            <span style={{ fontSize: '10px', color: '#737373', fontWeight: '600' }}>
-                {label}
-            </span>
-            <span style={{
-                fontSize: '12px',
-                color: color || '#E5E5E5',
-                fontWeight: '700',
-                fontFamily: 'monospace'
-            }}>
-                {value}
-            </span>
-        </div>
-        {bar !== undefined && (
-            <div style={{
-                height: '4px',
-                background: '#262626',
-                borderRadius: '2px',
-                overflow: 'hidden'
-            }}>
-                <div style={{
-                    height: '100%',
-                    width: `${bar * 100}%`,
-                    background: color,
-                    transition: 'width 0.3s ease'
-                }} />
-            </div>
-        )}
+/* ─── Reusable Sub-Components ──────────────────────────── */
+
+const SectionHeader = ({ title, subtitle }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <span style={{ color: '#FF8B8B', fontWeight: 700, fontSize: '11px', letterSpacing: '1px' }}>{title}</span>
+        <span style={{ color: '#475569', fontSize: '9px' }}>{subtitle}</span>
     </div>
 );
 
-// Helper component for correlation items
-const CorrelationItem = ({ label, value, color, icon }) => (
-    <div style={{
-        background: '#0A0A0A',
-        padding: '12px',
-        borderRadius: '6px',
-        border: '1px solid #262626',
-        textAlign: 'center'
-    }}>
-        <div style={{ fontSize: '20px', marginBottom: '6px' }}>{icon}</div>
-        <div style={{ fontSize: '9px', color: '#737373', marginBottom: '4px', fontWeight: '600' }}>
-            {label}
+const StatusBadge = ({ label, value, quality }) => {
+    const color = quality === 'GOOD' ? '#22C55E' : quality === 'MODERATE' ? '#F97316' : '#EF4444';
+    return (
+        <div style={{ background: 'rgba(25,15,15,0.8)', border: `1px solid ${color}30`, borderRadius: '6px', padding: '4px 10px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <span style={{ color: '#64748B', fontSize: '9px' }}>{label}</span>
+            <span style={{ color, fontSize: '11px', fontWeight: 700 }}>{value}</span>
         </div>
-        <div style={{ fontSize: '13px', color: color, fontWeight: '700', fontFamily: 'monospace' }}>
-            {value}
-        </div>
+    );
+};
+
+const DataPanel = ({ title, children, style = {} }) => (
+    <div style={{ background: 'rgba(25,15,15,0.9)', borderRadius: '10px', border: '1px solid rgba(255,100,100,0.1)', padding: '10px', display: 'flex', flexDirection: 'column', ...style }}>
+        <span style={{ color: '#FF8B8B', fontWeight: 700, fontSize: '10px', letterSpacing: '0.5px', marginBottom: '8px' }}>{title}</span>
+        {children}
     </div>
 );
+
+const MetricRow = ({ label, value, warn = false }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+        <span style={{ color: '#94A3B8' }}>{label}</span>
+        <span style={{ color: warn ? '#F97316' : '#CBD5E1', fontWeight: 500 }}>{value}</span>
+    </div>
+);
+
+const CompositionBar = ({ label, value, max, color }) => {
+    const percentage = Math.min(100, (value / max) * 100);
+    return (
+        <div style={{ marginBottom: '5px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '2px' }}>
+                <span style={{ color: '#94A3B8' }}>{label}</span>
+                <span style={{ color, fontWeight: 600 }}>{value.toFixed(2)}</span>
+            </div>
+            <div style={{ height: '4px', background: 'rgba(255,100,100,0.1)', borderRadius: '2px' }}>
+                <div style={{ height: '100%', width: `${percentage}%`, background: color, borderRadius: '2px', transition: 'width 0.3s ease' }} />
+            </div>
+        </div>
+    );
+};
+
+const ConfidenceTrendGraph = ({ data = [] }) => {
+    const points = data.slice(-20);
+    if (points.length < 2) {
+        return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', fontSize: '11px' }}>AWAITING DATA...</div>;
+    }
+
+    const svgWidth = 300;
+    const svgHeight = 120;
+    const pad = { top: 10, bottom: 10, left: 5, right: 5 };
+    const gw = svgWidth - pad.left - pad.right;
+    const gh = svgHeight - pad.top - pad.bottom;
+
+    const path = points.map((p, i) => {
+        const x = pad.left + (i / (points.length - 1)) * gw;
+        const y = pad.top + gh * (1 - p.value);
+        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+    }).join(' ');
+
+    const lastVal = points[points.length - 1].value;
+
+    return (
+        <div style={{ flex: 1, position: 'relative' }}>
+            <svg width="100%" height="100%" viewBox={`0 0 ${svgWidth} ${svgHeight}`} preserveAspectRatio="xMidYMid meet">
+                <path d={path} fill="none" stroke="#FF8B8B" strokeWidth="2" strokeLinejoin="round" />
+                <circle cx={pad.left + gw} cy={pad.top + gh * (1 - lastVal)} r="3" fill="#FF8B8B" />
+            </svg>
+            <span style={{ position: 'absolute', top: '5px', right: '5px', color: '#FF8B8B', fontSize: '12px', fontWeight: 700 }}>
+                {(lastVal * 100).toFixed(0)}%
+            </span>
+        </div>
+    );
+};
 
 export default Infrared;

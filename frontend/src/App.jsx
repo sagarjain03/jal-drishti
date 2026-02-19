@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { StreamProvider } from './context/StreamContext';
+import { SystemStateProvider } from './context/SystemStateContext';
 import MainLayout from './layout/MainLayout';
 import Home from './pages/Home';
 import Sonar from './pages/Sonar';
@@ -9,12 +10,13 @@ import './App.css';
 
 /**
  * App Component (Refactored for MPA)
- * - Wraps application in StreamProvider (Global WebSocket State)
- * - Sets up Routing via React Router
+ * - StreamProvider: Global WebSocket State
+ * - SystemStateProvider: 6-step confidence pipeline, state machine, correlation, alerts
  */
 function App() {
   return (
     <StreamProvider>
+      <SystemStateProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<MainLayout />}>
@@ -26,6 +28,7 @@ function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </SystemStateProvider>
     </StreamProvider>
   );
 }

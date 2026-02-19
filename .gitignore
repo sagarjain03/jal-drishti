@@ -20,6 +20,7 @@ MILESTONE_2_ARCHITECTURE.md
 MILESTONE_3_ARCHITECTURE.md
 MILESTONE_4_ARCHITECTURE.md
 
+startup.txt
 ### Node ###
 ml-engine/venv
 backend/venv
